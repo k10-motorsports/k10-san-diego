@@ -1,0 +1,5 @@
+[project]
+name = "k10-san-diego"
+version = "0.1.0"
+description = "Lake Murray loop — Assetto Corsa track, Blender-first"
+requires-python = ">=3.9"
