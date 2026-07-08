@@ -333,6 +333,7 @@ def build_curbs(centerline, widths, *, curb_h=0.14, curb_w=0.15):
             a = base + i * 4; b = base + (i + 1) * 4
             for (p0, p1) in [(0, 1), (1, 2), (2, 3)]:
                 tris.append((a + p0, a + p1, b + p1)); tris.append((a + p0, b + p1, b + p0))
+    tris += [(t[0], t[2], t[1]) for t in list(tris)]      # double-sided: visible from either side in-game
     return {"vertices": verts, "uvs": [], "tris": tris}
 
 
@@ -376,6 +377,7 @@ def build_sidewalks(cache, centerline, grid_xyz, lon0, lat0, *, half_w=0.9, lift
             tris.append((a + 0, a + 2, b + 2)); tris.append((a + 0, b + 2, b + 0))
             for e in (0, 2):
                 tris.append((a + e, a + e + 1, b + e + 1)); tris.append((a + e, b + e + 1, b + e))
+    tris += [(t[0], t[2], t[1]) for t in list(tris)]      # double-sided so the slab top always shows
     return {"vertices": verts, "uvs": [], "tris": tris}, kept
 
 

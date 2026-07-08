@@ -85,18 +85,19 @@ def generate(project_dir: str | Path) -> Path:
         out += [f"; --- Streetlights: {len(heads)} lights, one per pole (AC world = local x,y,-z) ---"]
         for n, (x, y, z) in enumerate(heads):
             out += [f"[LIGHT_{n}]",
-                    f"POSITION = {x}, {y}, {-z}",           # local (E,up,N) -> AC (x, y, -z)
+                    "ACTIVE = 1",
+                    f"POSITION = {x}, {y}, {-z}",           # local (E,up,N) -> AC (x, y up, -z)
                     "DIRECTION = 0, -1, 0",                 # shine down
-                    "COLOR = 1.0, 0.82, 0.55, 22",          # warm sodium-white, last = intensity
+                    "COLOR = 255, 214, 150, 28",            # warm sodium-white — RGB 0-255, last = brightness
                     "SPOT = 120", "SPOT_SHARPNESS = 0.25",
-                    "RANGE = 26", "RANGE_GRADIENT_OFFSET = 0.15",
-                    "FADE_AT = 260", "FADE_SMOOTH = 40",
+                    "RANGE = 28", "RANGE_GRADIENT_OFFSET = 0.15",
+                    "FADE_AT = 280", "FADE_SMOOTH = 40",
                     "CONDITION = NIGHT_SMOOTH", "SPECULAR_MULT = 1", ""]
         out += ["; --- lamp fixtures glow at night --------------------------------------------",
                 "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                "VALUE_0 = 255, 209, 166, 0.6",             # ksEmissive is 0-255 RGB + brightness
+                "VALUE_0 = 255, 214, 150, 1.6",             # ksEmissive is 0-255 RGB + brightness
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 
