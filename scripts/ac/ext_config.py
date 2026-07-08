@@ -2,11 +2,17 @@
 
 CSP-native + Pure-friendly. It does NOT override the sky or bake lighting, so Pure's sky/sun drives the
 scene; this file only adds the track's own layer:
-  - one REAL light per streetlight (explicit [LIGHT_N] at each lamp head) — guaranteed to emit at night,
+  - one REAL light per streetlight (explicit [LIGHT_N] at each lamp head) that emits at night,
     plus an emissive lamp material so the fixtures glow;
   - GrassFX on 1GRASS (road/kerb/walls occlude it);
   - a warm San-Diego light-pollution sky glow;
   - a gentle global [LIGHTING] lift.
+
+CRITICAL — the night gate: the lights and the emissive are gated on CONDITION = NIGHT_SMOOTH, which is
+NOT a built-in CSP condition. It is defined only in CSP's common/conditions.ini. If that file is not
+pulled in, NIGHT_SMOOTH is an UNDEFINED condition, CSP evaluates it to 0 (OFF), and NOTHING ever lights
+up — this was the "streetlights never emit" bug through v0.5.1. We fix it exactly the way the shipped,
+known-working sx_lemans.ini does: an [INCLUDE] of common/conditions.ini at the top of the file.
 
 Why explicit [LIGHT_N] and not [LIGHT_SERIES] MESHES: the posts export as ONE merged LIGHTS mesh, so a
 MESHES series drops a single light at the blob centroid (the old "streetlights never emit" bug). One
@@ -55,6 +61,11 @@ def generate(project_dir: str | Path) -> Path:
         "; ============================================================================",
         f"; {cfg.get('name', slug)} — CSP ext_config (Pure-friendly: no sky/lighting override)",
         "; ============================================================================", "",
+        "; Pull in CSP's condition table so NIGHT_SMOOTH (used by the streetlights + the lamp",
+        "; emissive below) is DEFINED. It is not built in; without this include the condition is",
+        "; undefined -> evaluates to OFF -> lights never emit. Shipped sx_lemans.ini does the same.",
+        "[INCLUDE]",
+        "INCLUDE = common/conditions.ini", "",
         "[LIGHTING]",
         "LIT_MULT = 1.05",
         "BOUNCED_LIGHT_MULT = 1, 1, 1, 0.12", "",
@@ -89,6 +100,7 @@ def generate(project_dir: str | Path) -> Path:
                     f"POSITION = {x}, {y}, {-z}",           # local (E,up,N) -> AC (x, y up, -z)
                     "DIRECTION = 0, -1, 0",                 # shine down
                     "COLOR = 255, 214, 150, 28",            # warm sodium-white — RGB 0-255, last = brightness
+                    "COLOR_OFF = 0, 0, 0, 0",               # fully dark when the night condition is false
                     "SPOT = 120", "SPOT_SHARPNESS = 0.25",
                     "RANGE = 28", "RANGE_GRADIENT_OFFSET = 0.15",
                     "FADE_AT = 280", "FADE_SMOOTH = 40",
