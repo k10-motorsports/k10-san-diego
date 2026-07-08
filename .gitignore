@@ -6,3 +6,5 @@ project/data/*.svg
 project/build/
 .DS_Store
 project/renders/
+project/build/
+project/blender/

@@ -83,9 +83,26 @@ k10-san-diego/
     ├── gps/          # centerline, street_route (real-network routing), road_route, overpass, kml
     ├── trace/osm.py
     ├── elevation/    # heightfield, usgs_3dep (real elevation sampling)
-    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level
-    └── blender/      # build_loop_blend.py — imports the loop into Blender
+    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies
+    ├── blender/      # build_loop_blend.py — imports the loop into Blender
+    └── ac/           # kn5 pipeline: build_kn5 (prep) -> export_kn5_addon -> verify_kn5 -> track_folder
+vendor/io_import_accsv   # the jwl-7 AC Blender Tools addon, vendored (kn5 exporter; Blender 4.2 only)
 ```
+
+## kn5 export (installable AC track)
+
+`loop.blend` is the source of truth; the kn5 pipeline **consumes** it — so hand-edits ship. One command:
+```bash
+scripts/build_kn5.sh project     # -> project/build/<slug>_track.zip (drop into Content Manager)
+```
+Stages: `build_kn5.py` opens loop.blend, renames the working meshes to AC conventions
+(ROAD→`1ROAD_road`, TERRAIN→`1GRASS`, KERB→`1KERB_kerb`, GUARDRAIL→`1WALL_guard`), adds tiling UVs + PBR
+materials + the AC_START/PIT/TIME/HOTLAP dummies, welds the grass watertight, and **flips drivable faces
+up** (the local→Blender axis remap is a reflection that inverts winding — face-down = car falls through;
+fix deterministically by reversing only normal.z<0 faces, never `recalc_face_normals`). Then
+`export_kn5_addon.py` runs the vendored addon (Blender **4.2** — not 5) to write the kn5, `verify_kn5`
+gates it (no dup meshes, drivable face-up, under the 65 k cap, spawns on road), and `track_folder`
+writes surfaces.ini / ui / map / models.ini / CSP ext_config. Ships via GitHub Releases, not git.
 
 ## Commands
 
