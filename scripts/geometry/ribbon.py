@@ -347,6 +347,64 @@ def crosswalk(centerline_m: list[Vertex], widths_m: list[float], *, at_idx: int 
     return {"vertices": verts, "tris": tris}
 
 
+def lane_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.12,
+                  edge_inset: float = 0.55, lane_w: float = 3.65, lift: float = 0.0,
+                  dash_on: float = 3.0, dash_gap: float = 9.0, max_lanes_side: int = 6,
+                  tile_m: float = 1.0, bank_at=None) -> dict:
+    """Realistic painted lane lines for a real street: a solid double-yellow centreline, dashed white
+    lane dividers (one per lane boundary each side, spaced ``lane_w``), and solid white edge lines inset
+    from the kerb. Lane count is derived per-station from the road width, so wide arterials and
+    intersection turn-pockets get more lanes and narrow blocks fewer — dividers self-clip where they'd
+    fall outside the paved width. Returns ``{"white": mesh, "yellow": mesh}`` (both VISUAL-only — no ``1``
+    prefix); the caller lifts them a hair above the road. Quads are double-sided so a flat decal never
+    backface-culls. ``bank_at`` rolls every line with the cambered road."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    m = n - 1 if closed else n
+    stations = []
+    arc = 0.0
+    for i in range(m):
+        if i > 0:
+            arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        x, y, z = pts[i]
+        tx, tz = _horiz_tangent(pts, i, closed)
+        stations.append((x, y, z, -tz, tx, widths_m[i] / 2.0, arc))  # x,y,z, leftnormal, half, arc
+    white = {"vertices": [], "uvs": [], "tris": []}
+    yellow = {"vertices": [], "uvs": [], "tris": []}
+
+    def strip(mesh, offset_of, dashed, clip=False, w=line_w):
+        V, U, T = mesh["vertices"], mesh["uvs"], mesh["tris"]
+        for i in range(m):
+            j = (i + 1) % m
+            if not closed and j == 0:
+                break
+            s0, s1 = stations[i], stations[j]
+            o0, o1 = offset_of(s0[5]), offset_of(s1[5])
+            if clip and (abs(o0) + w / 2 > s0[5] - edge_inset or abs(o1) + w / 2 > s1[5] - edge_inset):
+                continue                                   # divider would spill past the paved edge → skip
+            if dashed and (s0[6] % (dash_on + dash_gap)) > dash_on:
+                continue
+            b = len(V)
+            for s, o in ((s0, o0), (s1, o1)):
+                x, y, z, nx, nz, half, a = s
+                tb = math.tan(bank_at(a)) if bank_at else 0.0
+                for sign in (-1, 1):
+                    off = o + sign * w / 2
+                    V.append((x + nx * off, y + lift + off * tb, z + nz * off))
+                    U.append(((sign + 1) / 2, a / tile_m))
+            T.append((b, b + 1, b + 3)); T.append((b, b + 3, b + 2))     # forced face-up in build_kn5
+
+    strip(yellow, lambda half: +0.09, False)                    # double-yellow centre (two solid lines)
+    strip(yellow, lambda half: -0.09, False)
+    strip(white, lambda half: half - edge_inset, False)         # solid white edge lines
+    strip(white, lambda half: -(half - edge_inset), False)
+    for k in range(1, max_lanes_side + 1):                       # dashed white lane dividers, both sides
+        strip(white, (lambda kk: (lambda half: kk * lane_w))(k), True, clip=True)
+        strip(white, (lambda kk: (lambda half: -kk * lane_w))(k), True, clip=True)
+    return {"white": white, "yellow": yellow}
+
+
 def road_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.14,
                   edge_inset: float = 0.4, lift: float = 0.0, dash_on: float = 3.0,
                   dash_gap: float = 4.5, tile_m: float = 1.0, bank_at=None) -> dict:

@@ -21,6 +21,7 @@ TEXTURES = {
     "CURB":    (None, None, 0.70, (0.64, 0.64, 0.66, 1), 0.0, False),   # concrete street curb (visual)
     "SIDEWALK": (None, None, 0.75, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete sidewalk slab
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
+    "YLINE":    (None, None, 0.45, (0.86, 0.68, 0.10, 1), 0.0, False),  # solid double-yellow centreline (shape = geometry)
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
     "1LAWN":   ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated suburban green turf (SoCal neighbourhood tiles)
     "1GRASS":  ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated SoCal neighbourhood turf (green)

@@ -123,7 +123,8 @@ def main():
         # DETERMINISTICALLY: reverse only the faces whose normal points down (normal.z<0). This is NOT
         # recalc_face_normals (which guesses "outward" from shape and picks DOWN on big terrain); for a
         # near-horizontal drivable surface "up" is unambiguous, so this can't guess wrong or split the mesh.
-        if ob.name.upper().startswith(("1ROAD", "1GRASS", "1KERB")):
+        # ...plus flat painted markings (MARKINGS/YLINE) — decals that must face up to be seen from the car.
+        if ob.name.upper().startswith(("1ROAD", "1GRASS", "1KERB", "MARKINGS", "YLINE")):
             bm.normal_update()
             down = [f for f in bm.faces if f.normal.z < 0]
             if down:

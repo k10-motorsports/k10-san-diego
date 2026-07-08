@@ -507,20 +507,42 @@ def main():
     sys.path.insert(0, str(repo))
     from scripts.geometry import ribbon, kerbs
 
+    cfg = json.loads((proj / "track.config.json").read_text())
+    band = float(cfg.get("terrain", {}).get("terrain_band_m", 22.0))
+    route = cfg.get("route", {})
+
     data = proj / "data"
-    local = json.loads((data / "centerline.local.json").read_text())
-    centerline = [tuple(p) for p in local["points_xyz_m"]]
+    # Always smooth from a PRISTINE snapshot of the OSM line so rebuilds are idempotent (we never
+    # re-smooth an already-smoothed line). The snapshot is written once, on the first build.
+    raw_path = data / "centerline.raw.local.json"
+    if raw_path.exists():
+        local = json.loads(raw_path.read_text())
+    else:
+        local = json.loads((data / "centerline.local.json").read_text())
+        raw_path.write_text(json.dumps(local))
+    raw_centerline = [tuple(p) for p in local["points_xyz_m"]]
     widths = local["widths_m"]
     lon0, lat0 = local["origin"]["lon"], local["origin"]["lat"]
     elev0 = local["origin"]["elev_m"]
 
-    cfg = json.loads((proj / "track.config.json").read_text())
-    band = float(cfg.get("terrain", {}).get("terrain_band_m", 22.0))
+    # Round the OSM facet-kinks on the curves — horizontal only, elevation preserved — then persist the
+    # smoothed line so the mesh, the AC dummies (build_kn5) and the minimap all share ONE geometry.
+    from scripts.geometry import smooth as smoothmod
+    centerline = smoothmod.smooth_centerline(
+        raw_centerline, sigma_pts=float(route.get("smooth_sigma_pts", 2.0)),
+        passes=int(route.get("smooth_passes", 2)))
+    local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
+    (data / "centerline.local.json").write_text(json.dumps(local))
+    print(f"[blend] smoothed curves: max kink {smoothmod.max_kink_deg(raw_centerline):.1f} -> "
+          f"{smoothmod.max_kink_deg(centerline):.1f} deg")
 
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + 0.10, z) for (x, y, z) in road["vertices"]]   # ~0.1 m proud of the terrain
     kerb = build_curbs(centerline, widths)   # continuous concrete street curb (real curbs, not racing kerbs)
+    marks = ribbon.lane_markings(centerline, widths)   # painted lines: white edges/dashes + double-yellow centre
+    for mk in marks.values():
+        mk["vertices"] = [(x, y + 0.115, z) for (x, y, z) in mk["vertices"]]  # 1.5 cm above the road top
 
     # --- terrain: upsample the coarse 40 m DEM (finer facets), conform to the road with a small
     #     clearance so near-road ground sits just BELOW the road edge (no coarse facet pokes up through
@@ -553,6 +575,8 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_mesh("TERRAIN", terrain, (0.30, 0.42, 0.20, 1.0))
     make_mesh("ROAD", road, (0.09, 0.09, 0.10, 1.0))
+    make_mesh("MARKINGS", marks["white"], (0.90, 0.90, 0.86, 1.0))   # white edge + dashed lane lines
+    make_mesh("YLINE", marks["yellow"], (0.86, 0.68, 0.10, 1.0))     # double-yellow centreline
     make_mesh("CURB", kerb, (0.64, 0.64, 0.66, 1.0))          # concrete grey street curb (visual)
     make_mesh("SIDEWALK", sidewalks, (0.68, 0.68, 0.66, 1.0))
     print(f"[blend] {nsw} sidewalk ways along the loop")
