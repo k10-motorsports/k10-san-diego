@@ -401,10 +401,11 @@ def _bld_height(b):
     return _H_DEFAULT.get(b.get("building"), 6.0)
 
 
-def build_buildings(centerline, widths, grid_xyz, cache, lon0, lat0):
+def build_buildings(centerline, widths, grid_xyz, cache, lon0, lat0, *, min_area=25.0, cap=None):
     """Extrude OSM building footprints near the loop (houses included — building=yes/house cover them).
     Sit each on the sampled terrain, skip any that crowd the road, split HOUSE vs BUILDING for material
-    variety. Returns {'HOUSE': mesh, 'BUILDING': mesh}."""
+    variety. ``cap`` keeps only the N largest near-road footprints (a 46 km urban loop has 60k+). Returns
+    {'HOUSE': mesh, 'BUILDING': mesh}."""
     m_lon = 111320.0 * math.cos(math.radians(lat0)); m_lat = 110574.0
     terr = _grid_sampler(grid_xyz)
     # bucket the road for fast nearest (centre pt -> half width)
@@ -425,7 +426,7 @@ def build_buildings(centerline, widths, grid_xyz, cache, lon0, lat0):
 
     meshes = {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
               "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
-    kept = 0
+    cand = []                                             # (area, foot, cx, cz, building)
     for b in cache:
         if b.get("building") == "roof":
             continue
@@ -437,23 +438,21 @@ def build_buildings(centerline, widths, grid_xyz, cache, lon0, lat0):
         cx = sum(p[0] for p in foot) / len(foot); cz = sum(p[1] for p in foot) / len(foot)
         area = abs(sum(foot[i][0] * foot[(i + 1) % len(foot)][1] - foot[(i + 1) % len(foot)][0] * foot[i][1]
                        for i in range(len(foot)))) / 2
-        if area < 25:
+        if area < min_area:
             continue
-        d_road, hw = near_road(cx, cz)
-        if d_road > 120:                                  # only the roadside context
+        d_road, hw = near_road(cx, cz)                    # bucketed nearest — O(1), no per-vertex scan
+        if d_road > 120 or d_road < hw + 5:               # roadside context, but not crowding the road
             continue
-        if min(math.hypot(fx - rx, fz - rz) for (fx, fz) in foot
-               for (rx, rz, _hw) in [(centerline[i][0], centerline[i][2], 0)
-                                     for i in range(0, len(centerline), 3)]) < hw + 4:
-            continue                                      # crowds the road -> skip
-        if area > 0 and _signed_area(foot) < 0:           # ensure CCW so walls face outward
+        cand.append((area, foot, cx, cz, b))
+    cand.sort(key=lambda c: -c[0])                        # largest footprints first
+    if cap:
+        cand = cand[:cap]
+    for area, foot, cx, cz, b in cand:
+        if _signed_area(foot) < 0:                        # ensure CCW so walls face outward
             foot = foot[::-1]
-        base = terr(cx, cz) - 0.4
-        h = _bld_height(b)
         grp = "HOUSE" if b.get("building") in _HOUSE_TYPES else "BUILDING"
-        _extrude_footprint(meshes[grp], foot, base, h)
-        kept += 1
-    print(f"[blend] buildings: {kept} extruded near the loop "
+        _extrude_footprint(meshes[grp], foot, terr(cx, cz) - 0.4, _bld_height(b))
+    print(f"[blend] buildings: {len(cand)} extruded near the loop "
           f"(HOUSE {len(meshes['HOUSE']['tris'])//2}, BUILDING {len(meshes['BUILDING']['tris'])//2} quads)")
     return meshes
 
@@ -540,7 +539,10 @@ def main():
     lights, lampheads = build_streetlights(centerline, widths, i8, grid_xyz)  # collision-aware posts
     (data / "lights.local.json").write_text(json.dumps({"lampheads": lampheads}))  # -> CSP [LIGHT_N]
     bcache = data / "buildings.cache.json"
-    bmeshes = build_buildings(centerline, widths, grid_xyz, json.loads(bcache.read_text()), lon0, lat0) \
+    _scn = cfg.get("scenery", {})
+    bmeshes = build_buildings(centerline, widths, grid_xyz, json.loads(bcache.read_text()), lon0, lat0,
+                              min_area=float(_scn.get("building_min_area_m2", 25.0)),
+                              cap=_scn.get("building_cap")) \
         if bcache.exists() else {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
                                  "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
     swcache = data / "sidewalks.cache.json"

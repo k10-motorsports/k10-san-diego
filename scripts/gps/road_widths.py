@@ -43,8 +43,14 @@ def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
     segs_raw = json.loads((data / "road_lanes.cache.json").read_text())
+    cfg = json.loads((project_dir / "track.config.json").read_text())
+    # Divided surface streets tag each carriageway (oneway) with only its own lanes, so we double them to
+    # read as the whole boulevard. A freeway loop is ONE wide carriageway we actually drive, so DON'T
+    # double it (route.divided_double=false) — its own lane count is the width.
+    double = cfg.get("route", {}).get("divided_double", True)
     # flatten to lane-tagged planar segments (lon,lat); lanes default by highway class when untagged
-    HW_DEFAULT = {"primary": 4, "secondary": 3, "tertiary": 2, "residential": 2, "unclassified": 2}
+    HW_DEFAULT = {"motorway": 5, "trunk": 4, "primary": 4, "secondary": 3, "tertiary": 2,
+                  "residential": 2, "unclassified": 2}
     segs = []
     for w in segs_raw:
         try:
@@ -54,7 +60,7 @@ def build(project_dir: str | Path) -> dict:
         # These arterials are DIVIDED: the OSM segment is one carriageway (oneway) tagged with only that
         # carriageway's lanes. Our ribbon should read as the whole boulevard, so double a oneway
         # carriageway's lanes to approximate the full cross-section (both directions + median).
-        if w.get("oneway") == "yes":
+        if double and w.get("oneway") == "yes":
             lanes *= 2
         g = w["geom"]
         for i in range(len(g) - 1):

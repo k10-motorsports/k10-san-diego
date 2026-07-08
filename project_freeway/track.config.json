@@ -1,0 +1,73 @@
+{
+  "name": "San Diego \u2014 Freeway Loop",
+  "slug": "san_diego_freeway_loop",
+  "version": "0.1.0",
+  "author": "k10-san-diego",
+  "year": 2026,
+  "_about": "The I-5/CA-52/CA-163/I-8 freeway loop, routed as ONE clean carriageway (not the messy full network), built the k10 way. Intended as a LAYOUT of the Lake Murray track.",
+  "location": {
+    "lat": 32.8,
+    "lon": -117.18,
+    "timezone": "America/Los_Angeles",
+    "city": "San Diego",
+    "country": "United States"
+  },
+  "source": {
+    "type": "osm",
+    "_doc": "The loop is stitched from the named roads below along the real OSM drivable network (route.stitch='network'), then sampled for real elevation. data/network.cache.json is a cached OSM fetch so re-derivation never depends on a live Overpass call."
+  },
+  "route": {
+    "bbox": [
+      32.745,
+      -117.24,
+      32.855,
+      -117.13
+    ],
+    "roads": [
+      "I 5",
+      "CA 52",
+      "CA 163",
+      "I 8"
+    ],
+    "stitch": "network",
+    "connectors": {},
+    "connectors_kml": [],
+    "divided_double": false
+  },
+  "loop": true,
+  "mirror_x": false,
+  "default_width_m": 22.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "freeway",
+      "ai": "ai/freeway",
+      "uses_connectors": [],
+      "_doc": "The freeway loop."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "golden_hour",
+      "noon",
+      "morning"
+    ]
+  },
+  "terrain": {
+    "_doc": "Lessons carried over from the prior build. Roads and kerbs stay TIGHT to their real sampled elevation. The grass terrain is clamped so the raw DEM's Cowles-area peaks can't tower over a neighborhood loop where there are none.",
+    "terrain_band_m": 22.0,
+    "terrain_max_grade": 0.35,
+    "elevation_scale": 1.0
+  },
+  "scenery": {
+    "building_cap": 1500,
+    "building_min_area_m2": 80
+  }
+}

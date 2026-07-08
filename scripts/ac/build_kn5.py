@@ -38,6 +38,44 @@ def _project_dir(argv):
     return Path(rest[0]).resolve()
 
 
+def _split_large(ob, cap=60000):
+    """Split a mesh over AC's 65,535-vertex cap into UNIQUELY-named spatial tiles (base_0, base_1, ...).
+    The exporter otherwise auto-splits into DUPLICATE-named meshes, and AC drops dup-named PHYSICAL meshes
+    from collision -> the car falls through (the 46 km freeway terrain is ~268k verts). Partitions faces
+    into bands along the longest axis; pbr/surfaces still key off the shared name prefix (1GRASS_0 -> GRASS)."""
+    me = ob.data
+    if len(me.vertices) <= cap:
+        return
+    K = len(me.vertices) // cap + 1
+    co = [(v.co.x, v.co.y, v.co.z) for v in me.vertices]
+    ax = 0 if (max(c[0] for c in co) - min(c[0] for c in co)) >= \
+             (max(c[1] for c in co) - min(c[1] for c in co)) else 1
+    lo = min(c[ax] for c in co); span = (max(c[ax] for c in co) - lo) or 1.0
+    bands = [[] for _ in range(K)]
+    for p in me.polygons:
+        bands[min(K - 1, int((p.center[ax] - lo) / span * K))].append(p)
+    base = ob.name
+    mat = me.materials[0] if me.materials else None
+    for k, polys in enumerate(bands):
+        if not polys:
+            continue
+        used, nv, nf = {}, [], []
+        for poly in polys:
+            idx = []
+            for vi in poly.vertices:
+                if vi not in used:
+                    used[vi] = len(nv); nv.append(co[vi])
+                idx.append(used[vi])
+            nf.append(idx)
+        nm = bpy.data.meshes.new(f"{base}_{k}")
+        nm.from_pydata(nv, [], nf); nm.update()
+        if mat:
+            nm.materials.append(mat)
+        bpy.context.scene.collection.objects.link(bpy.data.objects.new(f"{base}_{k}", nm))
+    print(f"[build_kn5] split {base} ({len(me.vertices)} verts) -> {K} tiles under {cap}")
+    bpy.data.objects.remove(ob, do_unlink=True)
+
+
 def planar_uv(me):
     """Top-down planar UVs (u=x/tile, v=y/tile) — tiles asphalt/grass/kerb consistently at world scale."""
     uv = me.uv_layers.get("UVMap") or me.uv_layers.new(name="UVMap")
@@ -63,6 +101,10 @@ def main():
         if ob.type != "MESH":
             bpy.data.objects.remove(ob, do_unlink=True); continue
         ob.name = AC_NAME.get(ob.name, ob.name)
+
+    # split any mesh over the AC per-mesh vertex cap into uniquely-named tiles (big tracks: freeway terrain)
+    for ob in list(o for o in bpy.data.objects if o.type == "MESH"):
+        _split_large(ob)
 
     import bmesh
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
