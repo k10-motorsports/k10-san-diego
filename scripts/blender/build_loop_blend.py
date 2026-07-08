@@ -217,6 +217,101 @@ def build_guardrails(centerline, widths, i8, *, h=0.95, over=22.0, pad=3):
     return {"vertices": verts, "uvs": [], "tris": tris}
 
 
+def _grid_sampler(grid_xyz):
+    ny = len(grid_xyz); nx = len(grid_xyz[0])
+    x0 = grid_xyz[0][0][0]; z0 = grid_xyz[0][0][2]
+    dxg = grid_xyz[0][1][0] - x0; dzg = z0 - grid_xyz[1][0][2]
+    def h(x, z):
+        fi = (x - x0) / dxg; fj = (z0 - z) / dzg
+        i0 = max(0, min(nx - 2, int(fi))); j0 = max(0, min(ny - 2, int(fj))); ti = fi - i0; tj = fj - j0
+        a = grid_xyz[j0][i0][1]; b = grid_xyz[j0][i0 + 1][1]
+        c = grid_xyz[j0 + 1][i0][1]; d = grid_xyz[j0 + 1][i0 + 1][1]
+        return (a * (1 - ti) + b * ti) * (1 - tj) + (c * (1 - ti) + d * ti) * tj
+    return h
+
+
+def _post_box(verts, tris, x, z, y0, y1, r):
+    b = len(verts)
+    for (dx, dz) in [(-r, -r), (r, -r), (r, r), (-r, r)]:
+        verts.append((x + dx, y0, z + dz))
+    for (dx, dz) in [(-r, -r), (r, -r), (r, r), (-r, r)]:
+        verts.append((x + dx, y1, z + dz))
+    for k in range(4):
+        a, c = b + k, b + (k + 1) % 4
+        tris.append((a, c, b + 4 + (k + 1) % 4)); tris.append((a, b + 4 + (k + 1) % 4, b + 4 + k))
+    tris.append((b + 4, b + 5, b + 6)); tris.append((b + 4, b + 6, b + 7))
+
+
+def _tube(verts, tris, x0, z0, y0, x1, z1, y1, r):
+    dx, dz = x1 - x0, z1 - z0; L = math.hypot(dx, dz) or 1.0; ux, uz = dx / L, dz / L
+    px, pz = -uz, ux
+    b = len(verts)
+    for (sx, sz, sy) in [(x0, z0, y0), (x1, z1, y1)]:
+        for (ox, oz, oy) in [(-px * r, -pz * r, -r), (px * r, pz * r, -r), (px * r, pz * r, r), (-px * r, -pz * r, r)]:
+            verts.append((sx + ox, sy + oy, sz + oz))
+    for k in range(4):
+        a, c = b + k, b + (k + 1) % 4
+        tris.append((a, c, b + 4 + (k + 1) % 4)); tris.append((a, b + 4 + (k + 1) % 4, b + 4 + k))
+
+
+def build_streetlights(centerline, widths, i8, grid_xyz, *, spacing=55.0, side_off=2.8,
+                       post_h=9.0, arm=1.8):
+    """Streetlight posts along the loop, COLLISION-AWARE so they never clip other objects:
+    - offset outside the kerb (width/2 + side_off) — never in the road;
+    - skip the I-8 bridge/cut spans (near_i8 < 26 m) — no posts on a deck or in the trench;
+    - min 25 m between posts — no two overlap;
+    - base GROUNDED on the sampled terrain (not floating/buried), and rejected where the road sits >6 m
+      above the ground (a cut wall) so a post never spawns halfway down the freeway embankment.
+    Returns (mesh, lamp_head_positions) with heads in LOCAL frame (x=E, y=up, z=N) for the CSP lights."""
+    import bisect
+    terr = _grid_sampler(grid_xyz)
+
+    def perp(i):
+        a = centerline[max(0, i - 1)]; b = centerline[min(len(centerline) - 1, i + 1)]
+        ex, ez = b[0] - a[0], b[2] - a[2]; L = math.hypot(ex, ez) or 1.0
+        return (-ez / L, ex / L)
+
+    def near_i8(x, z):
+        best = 1e18
+        for k in range(len(i8) - 1):
+            ax, az = i8[k][0], i8[k][2]; bx2, bz2 = i8[k + 1][0], i8[k + 1][2]
+            dx, dz = bx2 - ax, bz2 - az; L2 = dx * dx + dz * dz
+            if L2 == 0:
+                continue
+            t = max(0.0, min(1.0, ((x - ax) * dx + (z - az) * dz) / L2))
+            best = min(best, math.hypot(x - (ax + t * dx), z - (az + t * dz)))
+        return best
+
+    cum = [0.0]
+    for i in range(1, len(centerline)):
+        cum.append(cum[-1] + math.dist(centerline[i][::2], centerline[i - 1][::2]))
+    total = cum[-1]
+    verts, tris, heads, placed = [], [], [], []
+    s, side = spacing, 1
+    while s < total:
+        i = min(bisect.bisect_left(cum, s), len(centerline) - 1)
+        cx, cy, cz = centerline[i]; hw = widths[i] / 2; px, pz = perp(i)
+        if i8 and near_i8(cx, cz) < 26:
+            s += spacing; continue
+        off = hw + side_off
+        bx, bz = cx + px * side * off, cz + pz * side * off
+        if any((bx - ox) ** 2 + (bz - oz) ** 2 < 25 ** 2 for ox, oz in placed):
+            s += spacing; continue
+        base_y = terr(bx, bz)
+        if cy - base_y > 6.0:                        # road towers over the ground here (cut wall) — skip
+            s += spacing; side = -side; continue
+        placed.append((bx, bz))
+        top = base_y + post_h
+        _post_box(verts, tris, bx, bz, base_y, top, 0.16)          # post
+        ix, iz = -px * side, -pz * side                            # arm reaches IN toward the road
+        hx, hz = bx + ix * arm, bz + iz * arm
+        _post_box(verts, tris, hx, hz, top - 0.25, top, 0.24)      # lamp head
+        _tube(verts, tris, bx, bz, top - 0.1, hx, hz, top - 0.1, 0.07)  # arm
+        heads.append([round(hx, 3), round(top - 0.2, 3), round(hz, 3)])
+        side = -side; s += spacing
+    return {"vertices": verts, "uvs": [], "tris": tris}, heads
+
+
 def make_mesh(name, mesh_dict, rgba):
     """mesh_dict has 'vertices' [(x,y,z)] in local (x=E, y=up, z=N); remap to Blender Z-up (x, z, y)."""
     verts = [(vx, vz, vy) for (vx, vy, vz) in mesh_dict["vertices"]]
@@ -275,6 +370,8 @@ def main():
     cut_i8_trench(grid_xyz, i8)                                     # sink the I-8 corridor into a real cut
     terrain = ribbon.grass_terrain(grid_xyz)
     guardrail = build_guardrails(centerline, widths, i8)           # rails where the loop bridges I-8
+    lights, lampheads = build_streetlights(centerline, widths, i8, grid_xyz)  # collision-aware posts
+    (data / "lights.local.json").write_text(json.dumps({"lampheads": lampheads}))  # -> CSP [LIGHT_N]
 
     # --- fresh scene ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -282,6 +379,8 @@ def main():
     make_mesh("ROAD", road, (0.09, 0.09, 0.10, 1.0))
     make_mesh("KERB", kerb, (0.75, 0.16, 0.16, 1.0))
     make_mesh("GUARDRAIL", guardrail, (0.82, 0.82, 0.86, 1.0))
+    make_mesh("LIGHTS", lights, (0.28, 0.28, 0.30, 1.0))
+    print(f"[blend] {len(lampheads)} streetlights placed (collision-checked)")
 
     ys = [p[1] for p in centerline]
     print(f"[blend] loop: {len(centerline)} pts, road elevation {min(ys):.0f}..{max(ys):.0f} m (rel origin {elev0:.0f} m)")
