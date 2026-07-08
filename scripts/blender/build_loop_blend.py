@@ -312,6 +312,73 @@ def build_streetlights(centerline, widths, i8, grid_xyz, *, spacing=55.0, side_o
     return {"vertices": verts, "uvs": [], "tris": tris}, heads
 
 
+def build_curbs(centerline, widths, *, curb_h=0.14, curb_w=0.15):
+    """Continuous concrete street curb along BOTH road edges (replaces the racing corner kerbs): a low
+    vertical face at the road edge + a narrow top lip + an outer skirt. Physical 1KERB surface."""
+    verts, tris = [], []
+    n = len(centerline)
+    def perp(i):
+        a = centerline[max(0, i - 1)]; b = centerline[min(n - 1, i + 1)]
+        ex, ez = b[0] - a[0], b[2] - a[2]; L = math.hypot(ex, ez) or 1.0
+        return (-ez / L, ex / L)
+    for side in (1, -1):
+        base = len(verts)
+        for i in range(n):
+            x, y, z = centerline[i]; px, pz = perp(i); hw = widths[i] / 2
+            ex, ez = x + px * side * hw, z + pz * side * hw
+            ox, oz = ex + px * side * curb_w, ez + pz * side * curb_w
+            verts.append((ex, y, ez)); verts.append((ex, y + curb_h, ez))
+            verts.append((ox, y + curb_h, oz)); verts.append((ox, y, oz))
+        for i in range(n - 1):
+            a = base + i * 4; b = base + (i + 1) * 4
+            for (p0, p1) in [(0, 1), (1, 2), (2, 3)]:
+                tris.append((a + p0, a + p1, b + p1)); tris.append((a + p0, b + p1, b + p0))
+    return {"vertices": verts, "uvs": [], "tris": tris}
+
+
+def build_sidewalks(cache, centerline, grid_xyz, lon0, lat0, *, half_w=0.9, lift=0.14, near=24.0):
+    """Raised sidewalk slabs along the OSM footway=sidewalk ways that run BESIDE the loop (>50% of the way
+    within ``near`` m of the loop centreline — wide enough to clear the now-wide road half-widths).
+    Flat top at terrain+lift with a vertical skirt."""
+    m_lon = 111320.0 * math.cos(math.radians(lat0)); m_lat = 110574.0
+    terr = _grid_sampler(grid_xyz)
+    from collections import defaultdict
+    B = 40.0; rb = defaultdict(list)
+    for i in range(0, len(centerline), 2):
+        rb[(int(centerline[i][0] // B), int(centerline[i][2] // B))].append((centerline[i][0], centerline[i][2]))
+    def dloop(x, z):
+        bx, bz = int(x // B), int(z // B); best = 1e18
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for (rx, rz) in rb.get((bx + dx, bz + dz), ()):
+                    best = min(best, (x - rx) ** 2 + (z - rz) ** 2)
+        return math.sqrt(best)
+    verts, tris = [], []
+    kept = 0
+    for w in cache:
+        line = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in w["geom"]]
+        if len(line) < 2:
+            continue
+        if sum(1 for (x, z) in line if dloop(x, z) < near) < max(2, len(line) * 0.5):
+            continue
+        kept += 1
+        base = len(verts)
+        for k in range(len(line)):
+            x, z = line[k]
+            a = line[max(0, k - 1)]; b = line[min(len(line) - 1, k + 1)]
+            ex, ez = b[0] - a[0], b[1] - a[1]; L = math.hypot(ex, ez) or 1.0
+            px, pz = -ez / L, ex / L
+            ty = terr(x, z) + lift
+            for (sx, sz) in [(x + px * half_w, z + pz * half_w), (x - px * half_w, z - pz * half_w)]:
+                verts.append((sx, ty, sz)); verts.append((sx, ty - lift, sz))
+        for k in range(len(line) - 1):
+            a = base + k * 4; b = base + (k + 1) * 4
+            tris.append((a + 0, a + 2, b + 2)); tris.append((a + 0, b + 2, b + 0))
+            for e in (0, 2):
+                tris.append((a + e, a + e + 1, b + e + 1)); tris.append((a + e, b + e + 1, b + e))
+    return {"vertices": verts, "uvs": [], "tris": tris}, kept
+
+
 _HOUSE_TYPES = {"house", "detached", "residential", "bungalow", "semidetached_house", "yes", "terrace"}
 _H_DEFAULT = {"house": 5.5, "detached": 5.5, "residential": 6.0, "bungalow": 4.0, "terrace": 5.5,
               "garage": 3.0, "apartments": 11.0, "dormitory": 11.0, "retail": 6.5, "commercial": 7.0,
@@ -452,8 +519,7 @@ def main():
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + 0.10, z) for (x, y, z) in road["vertices"]]   # ~0.1 m proud of the terrain
-    kerb = kerbs.corner_kerbs(centerline, widths)
-    kerb["vertices"] = [(x, y + 0.12, z) for (x, y, z) in kerb["vertices"]]
+    kerb = build_curbs(centerline, widths)   # continuous concrete street curb (real curbs, not racing kerbs)
 
     # --- terrain: upsample the coarse 40 m DEM (finer facets), conform to the road with a small
     #     clearance so near-road ground sits just BELOW the road edge (no coarse facet pokes up through
@@ -475,12 +541,17 @@ def main():
     bmeshes = build_buildings(centerline, widths, grid_xyz, json.loads(bcache.read_text()), lon0, lat0) \
         if bcache.exists() else {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
                                  "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
+    swcache = data / "sidewalks.cache.json"
+    sidewalks, nsw = build_sidewalks(json.loads(swcache.read_text()), centerline, grid_xyz, lon0, lat0) \
+        if swcache.exists() else ({"vertices": [], "uvs": [], "tris": []}, 0)
 
     # --- fresh scene ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_mesh("TERRAIN", terrain, (0.30, 0.42, 0.20, 1.0))
     make_mesh("ROAD", road, (0.09, 0.09, 0.10, 1.0))
-    make_mesh("KERB", kerb, (0.75, 0.16, 0.16, 1.0))
+    make_mesh("CURB", kerb, (0.64, 0.64, 0.66, 1.0))          # concrete grey street curb (visual)
+    make_mesh("SIDEWALK", sidewalks, (0.68, 0.68, 0.66, 1.0))
+    print(f"[blend] {nsw} sidewalk ways along the loop")
     make_mesh("GUARDRAIL", guardrail, (0.82, 0.82, 0.86, 1.0))
     make_mesh("LIGHTS", lights, (0.28, 0.28, 0.30, 1.0))
     make_mesh("HOUSE", bmeshes["HOUSE"], (0.60, 0.55, 0.48, 1.0))
