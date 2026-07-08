@@ -51,5 +51,10 @@
     "terrain_band_m": 22.0,
     "terrain_max_grade": 0.35,
     "elevation_scale": 1.0
+  },
+  "scenery": {
+    "_doc": "palm_roads: names (matching route.roads / OSM) whose verges get tall Mexican fan palms, dropped every palm_spacing_m on both sides. Starting as a TEST STRIP on Lake Murray Blvd to judge density before rolling out to the whole loop.",
+    "palm_roads": ["Lake Murray Boulevard"],
+    "palm_spacing_m": 28
   }
 }

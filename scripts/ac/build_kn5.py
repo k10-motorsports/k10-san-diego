@@ -56,19 +56,31 @@ def _split_large(ob, cap=60000):
         bands[min(K - 1, int((p.center[ax] - lo) / span * K))].append(p)
     base = ob.name
     mat = me.materials[0] if me.materials else None
+    # carry authored per-vertex UVs across the split (palm cards etc. are single UV per vertex) — without
+    # this the tiles have NO UVs and an alpha-cutout texture samples (0,0) and vanishes.
+    vert_uv = None
+    if me.uv_layers.active:
+        uvl = me.uv_layers.active
+        vert_uv = [(0.0, 0.0)] * len(me.vertices)
+        for loop in me.loops:
+            vert_uv[loop.vertex_index] = tuple(uvl.data[loop.index].uv)
     for k, polys in enumerate(bands):
         if not polys:
             continue
-        used, nv, nf = {}, [], []
+        used, nv, nf, orig = {}, [], [], []
         for poly in polys:
             idx = []
             for vi in poly.vertices:
                 if vi not in used:
-                    used[vi] = len(nv); nv.append(co[vi])
+                    used[vi] = len(nv); nv.append(co[vi]); orig.append(vi)
                 idx.append(used[vi])
             nf.append(idx)
         nm = bpy.data.meshes.new(f"{base}_{k}")
         nm.from_pydata(nv, [], nf); nm.update()
+        if vert_uv is not None:
+            nuv = nm.uv_layers.new(name="UVMap")
+            for loop in nm.loops:
+                nuv.data[loop.index].uv = vert_uv[orig[loop.vertex_index]]
         if mat:
             nm.materials.append(mat)
         bpy.context.scene.collection.objects.link(bpy.data.objects.new(f"{base}_{k}", nm))
@@ -109,7 +121,8 @@ def main():
     import bmesh
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         me = ob.data
-        planar_uv(me)
+        if not ob.name.upper().startswith("PALM"):   # palms carry authored bark/frond UVs — don't flatten
+            planar_uv(me)
         bm = bmesh.new(); bm.from_mesh(me)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
         if ob.name.upper().startswith("1GRASS"):

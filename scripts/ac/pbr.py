@@ -46,6 +46,8 @@ TEXTURES = {
     "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
+    "PALMTRUNK": ("palm_bark.png", None, 0.90, (0.45, 0.38, 0.28, 1), 0.0, False),  # tapered palm trunk (bark_139)
+    "PALMFROND": ("palm_frond.png", None, 0.72, (0.24, 0.40, 0.16, 1), 0.0, False),  # drooping fan-crown leaf cards (alpha cutout)
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
@@ -58,7 +60,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS"}
+BILLBOARD = {"TREES", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS", "PALMFROND"}
 
 
 def texture_dir() -> Path:
@@ -107,10 +109,14 @@ def setup_material(bpy, obj, tex_dir: Path | None = None, overrides: dict | None
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = bpy.data.images.load(str(dpath), check_existing=True)
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-        if key in BILLBOARD:  # cutout billboard: wire alpha + clip the transparent background
-            nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
-            for attr, val in (("blend_method", "CLIP"), ("shadow_method", "CLIP"),
-                              ("surface_render_method", "DITHERED")):
+        if key in BILLBOARD:  # cutout billboard: threshold alpha to BINARY so EEVEE-Next's alpha hashing
+            # renders the card crisply (a raw 0..1 alpha dithers thin fronds away in a single-sample still).
+            # The in-engine kn5 cutout is driven separately by ALPHATEST on the BILLBOARD material at export.
+            gt = nt.nodes.new("ShaderNodeMath"); gt.operation = "GREATER_THAN"
+            gt.inputs[1].default_value = 0.35
+            nt.links.new(tex.outputs["Alpha"], gt.inputs[0])
+            nt.links.new(gt.outputs["Value"], bsdf.inputs["Alpha"])
+            for attr, val in (("blend_method", "CLIP"), ("shadow_method", "CLIP")):
                 try:
                     setattr(mat, attr, val)
                 except Exception:

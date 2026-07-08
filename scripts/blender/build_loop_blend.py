@@ -527,6 +527,13 @@ def make_mesh(name, mesh_dict, rgba):
     me.from_pydata(verts, [], faces)
     me.validate()
     me.update()
+    # apply authored per-vertex UVs. Most meshes get re-UV'd (planar) in build_kn5, but palms keep these —
+    # without them the frond cards sample the texture at (0,0) (a transparent corner) and vanish.
+    uvs = mesh_dict.get("uvs")
+    if uvs and len(uvs) == len(verts):
+        uvl = me.uv_layers.new(name="UVMap")
+        for loop in me.loops:
+            uvl.data[loop.index].uv = uvs[loop.vertex_index]
     ob = bpy.data.objects.new(name, me)
     bpy.context.scene.collection.objects.link(ob)
     mat = bpy.data.materials.new(name + "_mat")
@@ -609,6 +616,34 @@ def main():
     sidewalks, nsw = build_sidewalks(json.loads(swcache.read_text()), centerline, grid_xyz, lon0, lat0) \
         if swcache.exists() else ({"vertices": [], "uvs": [], "tris": []}, 0)
 
+    # --- palms on the verges of named target roads (scenery.palm_roads) ---
+    palm_roads = _scn.get("palm_roads", [])
+    palms = {"PALMTRUNK": {"vertices": [], "tris": [], "uvs": []},
+             "PALMFROND": {"vertices": [], "tris": [], "uvs": []}}
+    rlcache = data / "road_lanes.cache.json"
+    if palm_roads and rlcache.exists():
+        from scripts.geometry import palm as palmmod
+        m_lon = 111320.0 * math.cos(math.radians(lat0)); m_lat = 110574.0
+        segs = []
+        for w in json.loads(rlcache.read_text()):
+            if w.get("name") in palm_roads:
+                g = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in w["geom"]]
+                segs += [(g[a][0], g[a][1], g[a + 1][0], g[a + 1][1]) for a in range(len(g) - 1)]
+
+        def on_target(x, z, thr2=25.0 * 25.0):
+            best = 1e18
+            for ax, az, bx, bz in segs:
+                ddx, ddz = bx - ax, bz - az
+                L2 = ddx * ddx + ddz * ddz or 1.0
+                t = max(0.0, min(1.0, ((x - ax) * ddx + (z - az) * ddz) / L2))
+                best = min(best, (x - (ax + t * ddx)) ** 2 + (z - (az + t * ddz)) ** 2)
+            return best < thr2
+
+        on_mask = [on_target(p[0], p[2]) for p in centerline]
+        palms, npalm = palmmod.scatter(centerline, widths, _grid_sampler(grid_xyz), on_mask,
+                                       spacing=float(_scn.get("palm_spacing_m", 28.0)))
+        print(f"[blend] {npalm} palms scattered on {palm_roads}")
+
     # --- fresh scene ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_mesh("TERRAIN", terrain, (0.30, 0.42, 0.20, 1.0))
@@ -622,6 +657,8 @@ def main():
     make_mesh("LIGHTS", lights, (0.28, 0.28, 0.30, 1.0))
     make_mesh("HOUSE", bmeshes["HOUSE"], (0.60, 0.55, 0.48, 1.0))
     make_mesh("BUILDING", bmeshes["BUILDING"], (0.62, 0.62, 0.60, 1.0))
+    make_mesh("PALMTRUNK", palms["PALMTRUNK"], (0.45, 0.38, 0.28, 1.0))   # tall Mexican fan palm trunk
+    make_mesh("PALMFROND", palms["PALMFROND"], (0.24, 0.40, 0.16, 1.0))   # drooping fan crown (alpha)
     print(f"[blend] {len(lampheads)} streetlights placed (collision-checked)")
 
     ys = [p[1] for p in centerline]
