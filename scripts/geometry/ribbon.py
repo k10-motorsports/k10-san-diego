@@ -350,7 +350,7 @@ def crosswalk(centerline_m: list[Vertex], widths_m: list[float], *, at_idx: int 
 def lane_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.12,
                   edge_inset: float = 0.55, lane_w: float = 3.65, lift: float = 0.0,
                   dash_on: float = 3.0, dash_gap: float = 9.0, max_lanes_side: int = 6,
-                  tile_m: float = 1.0, bank_at=None) -> dict:
+                  center_yellow: bool = True, tile_m: float = 1.0, bank_at=None) -> dict:
     """Realistic painted lane lines for a real street: a solid double-yellow centreline, dashed white
     lane dividers (one per lane boundary each side, spaced ``lane_w``), and solid white edge lines inset
     from the kerb. Lane count is derived per-station from the road width, so wide arterials and
@@ -395,8 +395,9 @@ def lane_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: 
                     U.append(((sign + 1) / 2, a / tile_m))
             T.append((b, b + 1, b + 3)); T.append((b, b + 3, b + 2))     # forced face-up in build_kn5
 
-    strip(yellow, lambda half: +0.09, False)                    # double-yellow centre (two solid lines)
-    strip(yellow, lambda half: -0.09, False)
+    if center_yellow:                                           # two-way street: solid double-yellow centre
+        strip(yellow, lambda half: +0.09, False)                # (a one-way freeway carriageway has none)
+        strip(yellow, lambda half: -0.09, False)
     strip(white, lambda half: half - edge_inset, False)         # solid white edge lines
     strip(white, lambda half: -(half - edge_inset), False)
     for k in range(1, max_lanes_side + 1):                       # dashed white lane dividers, both sides

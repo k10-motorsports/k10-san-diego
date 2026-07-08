@@ -462,6 +462,40 @@ def _signed_area(foot):
     return sum(foot[i][0] * foot[(i + 1) % n][1] - foot[(i + 1) % n][0] * foot[i][1] for i in range(n)) / 2
 
 
+def _tri_area2(a, b, c):
+    return (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+
+
+def _pt_in_tri(p, a, b, c):
+    d1, d2, d3 = _tri_area2(p, a, b), _tri_area2(p, b, c), _tri_area2(p, c, a)
+    return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))   # all same sign = inside
+
+
+def _triangulate_ccw(foot):
+    """Ear-clip a simple CCW polygon (positive signed area) into CCW index triangles. Unlike a fan from
+    vertex 0, this stays correct for CONCAVE footprints (L-shapes, courtyards) — their fan roofs otherwise
+    produce inverted/see-through triangles."""
+    idx = list(range(len(foot)))
+    tris = []
+    guard = 4 * len(foot) * len(foot) + 10
+    while len(idx) > 3 and guard > 0:
+        guard -= 1
+        L = len(idx)
+        for i in range(L):
+            ia, ib, ic = idx[(i - 1) % L], idx[i], idx[(i + 1) % L]
+            a, b, c = foot[ia], foot[ib], foot[ic]
+            if _tri_area2(a, b, c) <= 1e-9:                      # reflex/degenerate (CCW) → not an ear
+                continue
+            if any(_pt_in_tri(foot[j], a, b, c) for j in idx if j not in (ia, ib, ic)):
+                continue
+            tris.append((ia, ib, ic)); idx.pop(i); break
+        else:
+            break                                                # numerical fallback: stop cleanly
+    if len(idx) == 3:
+        tris.append((idx[0], idx[1], idx[2]))
+    return tris
+
+
 def _extrude_footprint(mesh, foot, base_y, h):
     verts, tris = mesh["vertices"], mesh["tris"]
     n = len(foot); b = len(verts)
@@ -469,12 +503,15 @@ def _extrude_footprint(mesh, foot, base_y, h):
         verts.append((x, base_y, z))
     for (x, z) in foot:
         verts.append((x, base_y + h, z))
+    # Winding is chosen so that AFTER make_mesh's reflection-cancel (the (x,y,z)->(x,z,y) swap + a
+    # per-tri winding reversal), a CCW footprint's walls face OUTWARD and the roof faces UP. Authoring the
+    # "natural" (a,c,d)/(0,k,k+1) order instead lands them inward/down — the inside-out-buildings bug.
     for k in range(n):
         a, c = b + k, b + (k + 1) % n
         d, e = b + n + (k + 1) % n, b + n + k
-        tris.append((a, c, d)); tris.append((a, d, e))     # outward wall (CCW footprint)
-    for k in range(1, n - 1):                              # flat roof fan
-        tris.append((b + n, b + n + k, b + n + k + 1))
+        tris.append((a, d, c)); tris.append((a, e, d))     # outward wall
+    for (i, j, k) in _triangulate_ccw(foot):               # concave-safe flat roof, faces up
+        tris.append((b + n + i, b + n + k, b + n + j))
 
 
 def make_mesh(name, mesh_dict, rgba):
@@ -540,7 +577,8 @@ def main():
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + 0.10, z) for (x, y, z) in road["vertices"]]   # ~0.1 m proud of the terrain
     kerb = build_curbs(centerline, widths)   # continuous concrete street curb (real curbs, not racing kerbs)
-    marks = ribbon.lane_markings(centerline, widths)   # painted lines: white edges/dashes + double-yellow centre
+    marks = ribbon.lane_markings(centerline, widths,   # painted lines: white edges/dashes + (two-way) yellow centre
+                                 center_yellow=route.get("divided_double", True))
     for mk in marks.values():
         mk["vertices"] = [(x, y + 0.115, z) for (x, y, z) in mk["vertices"]]  # 1.5 cm above the road top
 
