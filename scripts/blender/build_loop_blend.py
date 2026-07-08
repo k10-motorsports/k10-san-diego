@@ -312,10 +312,109 @@ def build_streetlights(centerline, widths, i8, grid_xyz, *, spacing=55.0, side_o
     return {"vertices": verts, "uvs": [], "tris": tris}, heads
 
 
+_HOUSE_TYPES = {"house", "detached", "residential", "bungalow", "semidetached_house", "yes", "terrace"}
+_H_DEFAULT = {"house": 5.5, "detached": 5.5, "residential": 6.0, "bungalow": 4.0, "terrace": 5.5,
+              "garage": 3.0, "apartments": 11.0, "dormitory": 11.0, "retail": 6.5, "commercial": 7.0,
+              "supermarket": 8.0, "school": 8.0, "university": 9.5, "hospital": 12.0, "yes": 5.5}
+
+
+def _bld_height(b):
+    if b.get("height"):
+        try:
+            return float(str(b["height"]).split()[0].replace("m", ""))
+        except ValueError:
+            pass
+    if b.get("levels"):
+        try:
+            return float(str(b["levels"]).split(";")[0]) * 3.2
+        except ValueError:
+            pass
+    return _H_DEFAULT.get(b.get("building"), 6.0)
+
+
+def build_buildings(centerline, widths, grid_xyz, cache, lon0, lat0):
+    """Extrude OSM building footprints near the loop (houses included — building=yes/house cover them).
+    Sit each on the sampled terrain, skip any that crowd the road, split HOUSE vs BUILDING for material
+    variety. Returns {'HOUSE': mesh, 'BUILDING': mesh}."""
+    m_lon = 111320.0 * math.cos(math.radians(lat0)); m_lat = 110574.0
+    terr = _grid_sampler(grid_xyz)
+    # bucket the road for fast nearest (centre pt -> half width)
+    from collections import defaultdict
+    B = 60.0
+    rb = defaultdict(list)
+    for i in range(0, len(centerline), 2):
+        x, _y, z = centerline[i]; rb[(int(x // B), int(z // B))].append((x, z, widths[i] / 2))
+    def near_road(x, z):
+        bx, bz = int(x // B), int(z // B); best_d, best_hw = 1e18, 0
+        for dx in (-2, -1, 0, 1, 2):
+            for dz in (-2, -1, 0, 1, 2):
+                for (rx, rz, hw) in rb.get((bx + dx, bz + dz), ()):
+                    d = (x - rx) ** 2 + (z - rz) ** 2
+                    if d < best_d:
+                        best_d, best_hw = d, hw
+        return math.sqrt(best_d), best_hw
+
+    meshes = {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
+              "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
+    kept = 0
+    for b in cache:
+        if b.get("building") == "roof":
+            continue
+        foot = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in b["geom"]]
+        if len(foot) >= 2 and foot[0] == foot[-1]:
+            foot = foot[:-1]
+        if len(foot) < 3:
+            continue
+        cx = sum(p[0] for p in foot) / len(foot); cz = sum(p[1] for p in foot) / len(foot)
+        area = abs(sum(foot[i][0] * foot[(i + 1) % len(foot)][1] - foot[(i + 1) % len(foot)][0] * foot[i][1]
+                       for i in range(len(foot)))) / 2
+        if area < 25:
+            continue
+        d_road, hw = near_road(cx, cz)
+        if d_road > 120:                                  # only the roadside context
+            continue
+        if min(math.hypot(fx - rx, fz - rz) for (fx, fz) in foot
+               for (rx, rz, _hw) in [(centerline[i][0], centerline[i][2], 0)
+                                     for i in range(0, len(centerline), 3)]) < hw + 4:
+            continue                                      # crowds the road -> skip
+        if area > 0 and _signed_area(foot) < 0:           # ensure CCW so walls face outward
+            foot = foot[::-1]
+        base = terr(cx, cz) - 0.4
+        h = _bld_height(b)
+        grp = "HOUSE" if b.get("building") in _HOUSE_TYPES else "BUILDING"
+        _extrude_footprint(meshes[grp], foot, base, h)
+        kept += 1
+    print(f"[blend] buildings: {kept} extruded near the loop "
+          f"(HOUSE {len(meshes['HOUSE']['tris'])//2}, BUILDING {len(meshes['BUILDING']['tris'])//2} quads)")
+    return meshes
+
+
+def _signed_area(foot):
+    n = len(foot)
+    return sum(foot[i][0] * foot[(i + 1) % n][1] - foot[(i + 1) % n][0] * foot[i][1] for i in range(n)) / 2
+
+
+def _extrude_footprint(mesh, foot, base_y, h):
+    verts, tris = mesh["vertices"], mesh["tris"]
+    n = len(foot); b = len(verts)
+    for (x, z) in foot:
+        verts.append((x, base_y, z))
+    for (x, z) in foot:
+        verts.append((x, base_y + h, z))
+    for k in range(n):
+        a, c = b + k, b + (k + 1) % n
+        d, e = b + n + (k + 1) % n, b + n + k
+        tris.append((a, c, d)); tris.append((a, d, e))     # outward wall (CCW footprint)
+    for k in range(1, n - 1):                              # flat roof fan
+        tris.append((b + n, b + n + k, b + n + k + 1))
+
+
 def make_mesh(name, mesh_dict, rgba):
-    """mesh_dict has 'vertices' [(x,y,z)] in local (x=E, y=up, z=N); remap to Blender Z-up (x, z, y)."""
+    """mesh_dict has 'vertices' [(x,y,z)] in local (x=E, y=up, z=N); remap to Blender Z-up (x, z, y).
+    The remap is a reflection (det -1) that flips face orientation, so REVERSE each triangle's winding to
+    cancel it — authored orientation is preserved (drivable stays face-up, building walls stay outward)."""
     verts = [(vx, vz, vy) for (vx, vy, vz) in mesh_dict["vertices"]]
-    faces = [tuple(t) for t in mesh_dict["tris"]]
+    faces = [(t[0], t[2], t[1]) for t in mesh_dict["tris"]]
     if not verts or not faces:
         print(f"[blend] {name}: empty, skipped")
         return None
@@ -372,6 +471,10 @@ def main():
     guardrail = build_guardrails(centerline, widths, i8)           # rails where the loop bridges I-8
     lights, lampheads = build_streetlights(centerline, widths, i8, grid_xyz)  # collision-aware posts
     (data / "lights.local.json").write_text(json.dumps({"lampheads": lampheads}))  # -> CSP [LIGHT_N]
+    bcache = data / "buildings.cache.json"
+    bmeshes = build_buildings(centerline, widths, grid_xyz, json.loads(bcache.read_text()), lon0, lat0) \
+        if bcache.exists() else {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
+                                 "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
 
     # --- fresh scene ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -380,6 +483,8 @@ def main():
     make_mesh("KERB", kerb, (0.75, 0.16, 0.16, 1.0))
     make_mesh("GUARDRAIL", guardrail, (0.82, 0.82, 0.86, 1.0))
     make_mesh("LIGHTS", lights, (0.28, 0.28, 0.30, 1.0))
+    make_mesh("HOUSE", bmeshes["HOUSE"], (0.60, 0.55, 0.48, 1.0))
+    make_mesh("BUILDING", bmeshes["BUILDING"], (0.62, 0.62, 0.60, 1.0))
     print(f"[blend] {len(lampheads)} streetlights placed (collision-checked)")
 
     ys = [p[1] for p in centerline]

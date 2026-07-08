@@ -47,17 +47,23 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
         nx, nz = -tz, tx  # left normal (tangent rotated +90° in X-Z)
         half = widths_m[i] / 2.0
         tb = math.tan(bank_at(arc)) if bank_at else 0.0
-        verts.append((x + nx * half, y + half * tb, z + nz * half))  # left  -> 2i  (outside/raised)
-        verts.append((x - nx * half, y - half * tb, z - nz * half))  # right -> 2i+1
-        uvs.append((half / tile_m, arc / tile_m))        # left
-        uvs.append((-half / tile_m, arc / tile_m))       # right
+        # THREE verts per cross-section: left, CENTRE, right. The centre row means a spawn placed on the
+        # centreline sits right on a road vertex (a wide road otherwise leaves the centre ~half-width from
+        # any edge vertex — which read as "off-road" to the spawn gate) and tessellates the wide ribbon.
+        verts.append((x + nx * half, y + half * tb, z + nz * half))  # left   -> 3i
+        verts.append((x, y, z))                                      # centre -> 3i+1
+        verts.append((x - nx * half, y - half * tb, z - nz * half))  # right  -> 3i+2
+        uvs.append((half / tile_m, arc / tile_m))
+        uvs.append((0.0, arc / tile_m))
+        uvs.append((-half / tile_m, arc / tile_m))
     tris: list[tuple[int, int, int]] = []
     last = m if closed else m - 1
     for i in range(last):
         j = (i + 1) % m
-        l0, r0, l1, r1 = 2 * i, 2 * i + 1, 2 * j, 2 * j + 1
-        tris.append((l0, r0, r1))
-        tris.append((l0, r1, l1))
+        l0, c0, r0 = 3 * i, 3 * i + 1, 3 * i + 2
+        l1, c1, r1 = 3 * j, 3 * j + 1, 3 * j + 2
+        tris.append((l0, c0, c1)); tris.append((l0, c1, l1))         # left half
+        tris.append((c0, r0, r1)); tris.append((c0, r1, c1))         # right half
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
