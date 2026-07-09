@@ -53,8 +53,14 @@
     "elevation_scale": 1.0
   },
   "scenery": {
-    "_doc": "palm_roads: names (matching route.roads / OSM) whose verges get tall Mexican fan palms, dropped every palm_spacing_m on both sides. Starting as a TEST STRIP on Lake Murray Blvd to judge density before rolling out to the whole loop.",
-    "palm_roads": ["Lake Murray Boulevard"],
+    "_doc": "palm_roads: names (matching route.roads / OSM) whose verges get tall Mexican fan palms, dropped every palm_spacing_m on both sides. Now the whole loop (all 5 roads) after the Lake Murray Blvd test strip was approved.",
+    "palm_roads": [
+      "Alvarado Road",
+      "College Avenue",
+      "Navajo Road",
+      "Jackson Drive",
+      "Lake Murray Boulevard"
+    ],
     "palm_spacing_m": 28
   }
 }

@@ -11,6 +11,6 @@ sun.data.energy=3.0; sun.rotation_euler=(0.6,0.2,0.5)
 sc.render.engine='BLENDER_EEVEE_NEXT'; sc.eevee.taa_render_samples=16
 sc.render.resolution_x=1280; sc.render.resolution_y=720
 sc.render.image_settings.file_format='PNG'
-sc.render.filepath='/tmp/bridge_still2.png'
+sc.render.filepath='/tmp/sidewalk_still.png'
 bpy.ops.render.render(write_still=True)
-print("wrote /tmp/bridge_still2.png")
+print("wrote /tmp/sidewalk_still.png")
