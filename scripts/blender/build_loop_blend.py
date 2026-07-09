@@ -179,6 +179,41 @@ def cut_i8_trench(grid_xyz, i8, *, half_w=16.0, bank=6.0, depth=1.0):
                 grid_xyz[j][i] = (x, target, z)
 
 
+def _level_i8_decks(centerline, i8, *, near=30.0, pad=4):
+    """Where the loop crosses OVER I-8 (near the I-8 line AND above its floor), replace the road elevation
+    across the span with a straight arc-length interpolation between the two approach heights — a real
+    bridge DECK, not the sag-to-freeway-floor the bare-earth DEM sampled (College/70th 'flat plane' bug).
+    Only the crossings lift (y>floor); a road running alongside I-8 in a low valley is left alone."""
+    if not i8:
+        return centerline
+    over = []
+    for x, y, z in centerline:
+        bd, floor = _i8_nearest(i8, x, z)
+        over.append(floor is not None and bd < near and y > floor + 0.5)
+    mask = [any(over[max(0, k - pad):k + pad + 1]) for k in range(len(over))]  # dilate onto the approaches
+    pts = [list(p) for p in centerline]
+    k = 0
+    while k < len(mask):
+        if not mask[k]:
+            k += 1
+            continue
+        a = k
+        while k + 1 < len(mask) and mask[k + 1]:
+            k += 1
+        b = k
+        lo, hi = max(0, a - 1), min(len(pts) - 1, b + 1)
+        ya, yb = pts[lo][1], pts[hi][1]
+        dcum = [0.0]
+        for j in range(lo + 1, hi + 1):
+            dcum.append(dcum[-1] + math.hypot(pts[j][0] - pts[j - 1][0], pts[j][2] - pts[j - 1][2]))
+        tot = dcum[-1] or 1.0
+        for idx, j in enumerate(range(lo, hi + 1)):
+            pts[j][1] = ya + (yb - ya) * (dcum[idx] / tot)
+        print(f"[blend] leveled I-8 deck: pts {a}-{b} between {ya:.1f}->{yb:.1f} m")
+        k += 1
+    return [tuple(p) for p in pts]
+
+
 def build_guardrails(centerline, widths, i8, *, h=0.95, over=22.0, pad=3):
     """Vertical guardrail panels along BOTH road edges wherever the loop is over the I-8 cut (perp dist to
     I-8 < ``over``). Extends ``pad`` points onto each approach so the rail starts before the gap."""
@@ -328,7 +363,7 @@ def build_curbs(centerline, widths, *, curb_h=0.14, curb_w=0.15):
             ex, ez = x + px * side * hw, z + pz * side * hw
             ox, oz = ex + px * side * curb_w, ez + pz * side * curb_w
             verts.append((ex, y, ez)); verts.append((ex, y + curb_h, ez))
-            verts.append((ox, y + curb_h, oz)); verts.append((ox, y, oz))
+            verts.append((ox, y + curb_h, oz)); verts.append((ox, y - 0.3, oz))   # outer skirt dips BELOW grass so no hover gap shows
         for i in range(n - 1):
             a = base + i * 4; b = base + (i + 1) * 4
             for (p0, p1) in [(0, 1), (1, 2), (2, 3)]:
@@ -572,9 +607,15 @@ def main():
     # Round the OSM facet-kinks on the curves — horizontal only, elevation preserved — then persist the
     # smoothed line so the mesh, the AC dummies (build_kn5) and the minimap all share ONE geometry.
     from scripts.geometry import smooth as smoothmod
+    # Keep the REAL elevation — the loop genuinely grades down to the I-8 overpasses and back up, and that
+    # down-and-up is the whole point. sigma_y is LIGHT: it only rounds the sharpest launch-crests (grade
+    # reversals that send the car airborne) so the profile is smooth, NOT flat. We do NOT level the bridge
+    # decks — the roads ease down and up across them; forcing a flat deck was wrong.
     centerline = smoothmod.smooth_centerline(
         raw_centerline, sigma_pts=float(route.get("smooth_sigma_pts", 2.0)),
-        passes=int(route.get("smooth_passes", 2)))
+        passes=int(route.get("smooth_passes", 2)),
+        sigma_y_pts=float(route.get("smooth_sigma_y_pts", 1.5)))
+    i8 = _load_i8(proj)
     local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
     (data / "centerline.local.json").write_text(json.dumps(local))
     print(f"[blend] smoothed curves: max kink {smoothmod.max_kink_deg(raw_centerline):.1f} -> "
@@ -583,7 +624,11 @@ def main():
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + 0.10, z) for (x, y, z) in road["vertices"]]   # ~0.1 m proud of the terrain
-    kerb = build_curbs(centerline, widths)   # continuous concrete street curb (real curbs, not racing kerbs)
+    # ONE continuous urban edge per side: road edge -> curb -> raised sidewalk -> graded down to the grass.
+    # Gives real sidewalks the WHOLE loop (not just the sparse OSM footways) AND removes the hover — the outer
+    # lip lands on the terrain, so road/curb/sidewalk/grass share heights with no floating edge.
+    kerb = ribbon.curb_sidewalk(centerline, widths, lift=0.10, curb_h=0.14, curb_face_w=0.08,
+                                sidewalk_w=1.8, grade_w=1.2, grass_clearance=0.10)
     marks = ribbon.lane_markings(centerline, widths,   # painted lines: white edges/dashes + (two-way) yellow centre
                                  center_yellow=route.get("divided_double", True))
     for mk in marks.values():
@@ -596,11 +641,10 @@ def main():
     meta = json.loads((data / "heightfield.meta.json").read_text())
     grid, meta = ribbon.upsample_grid(grid, meta, 2)                      # 40 m -> 20 m facets
     grid_xyz = project_grid(grid, meta, lon0, lat0, elev0)
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.30)
+    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.08)
     band_clamp(grid_xyz, centerline, band)
     carve_road_corridor(grid_xyz, centerline, widths, carve=0.2)   # guarantee no ground pokes through
-    i8 = _load_i8(proj)
-    cut_i8_trench(grid_xyz, i8)                                     # sink the I-8 corridor into a real cut
+    cut_i8_trench(grid_xyz, i8)                                     # sink the I-8 corridor into a real cut (i8 loaded above)
     terrain = ribbon.grass_terrain(grid_xyz)
     guardrail = build_guardrails(centerline, widths, i8)           # rails where the loop bridges I-8
     lights, lampheads = build_streetlights(centerline, widths, i8, grid_xyz)  # collision-aware posts
@@ -612,9 +656,8 @@ def main():
                               cap=_scn.get("building_cap")) \
         if bcache.exists() else {"HOUSE": {"vertices": [], "uvs": [], "tris": []},
                                  "BUILDING": {"vertices": [], "uvs": [], "tris": []}}
-    swcache = data / "sidewalks.cache.json"
-    sidewalks, nsw = build_sidewalks(json.loads(swcache.read_text()), centerline, grid_xyz, lon0, lat0) \
-        if swcache.exists() else ({"vertices": [], "uvs": [], "tris": []}, 0)
+    # Continuous sidewalks now come from curb_sidewalk (above); the sparse OSM footways would only z-fight it.
+    sidewalks, nsw = {"vertices": [], "uvs": [], "tris": []}, 0
 
     # --- palms on the verges of named target roads (scenery.palm_roads) ---
     palm_roads = _scn.get("palm_roads", [])

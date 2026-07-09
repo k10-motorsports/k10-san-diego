@@ -52,10 +52,18 @@ def generate(project_dir: str | Path) -> Path:
     def present(prefix):
         return any(n.upper().startswith(prefix) for n in names) or not names
 
-    lp = (cfg.get("lighting", {}) or {}).get("light_pollution", {}) or {}
+    lcfg = (cfg.get("lighting", {}) or {})
+    lp = lcfg.get("light_pollution", {}) or {}
     lp_color = lp.get("color", [1.0, 0.86, 0.66])          # warm coastal-metro white (San Diego)
-    lp_density = lp.get("density", 0.20)
+    lp_density = lp.get("density", 0.06)                   # subtle sky glow (was blowing out the night at 0.2)
     lp_radius_km = lp.get("radius_km", 6.0)
+    # Streetlight tuning. With ~250 poles the pools overlap, so per-light brightness must be LOW or the
+    # whole scene blows out (the "undriveable at night" bug: was 28). These are gentle, config-overridable.
+    st_bright = float(lcfg.get("street_brightness", 3.2))  # [LIGHT] COLOR 4th value (intensity)
+    st_range = float(lcfg.get("street_range_m", 20.0))
+    st_spot = float(lcfg.get("street_spot_deg", 104.0))
+    st_fade = float(lcfg.get("street_fade_at_m", 165.0))
+    st_emissive = float(lcfg.get("street_emissive", 0.55)) # lamp-head glow (was 1.6 → bloomed)
 
     out = [
         "; ============================================================================",
@@ -67,8 +75,8 @@ def generate(project_dir: str | Path) -> Path:
         "[INCLUDE]",
         "INCLUDE = common/conditions.ini", "",
         "[LIGHTING]",
-        "LIT_MULT = 1.05",
-        "BOUNCED_LIGHT_MULT = 1, 1, 1, 0.12", "",
+        "LIT_MULT = 1.0",
+        "BOUNCED_LIGHT_MULT = 1, 1, 1, 0.05", "",
         "; --- warm San Diego light-pollution glow (night only; COLOR is r,g,b 0..1) ---",
         "[LIGHT_POLLUTION]",
         "ACTIVE = 1",
@@ -99,17 +107,17 @@ def generate(project_dir: str | Path) -> Path:
                     "ACTIVE = 1",
                     f"POSITION = {x}, {y}, {-z}",           # local (E,up,N) -> AC (x, y up, -z)
                     "DIRECTION = 0, -1, 0",                 # shine down
-                    "COLOR = 255, 214, 150, 28",            # warm sodium-white — RGB 0-255, last = brightness
+                    f"COLOR = 255, 214, 150, {st_bright}",  # warm sodium-white — RGB 0-255, last = brightness (LOW: many poles overlap)
                     "COLOR_OFF = 0, 0, 0, 0",               # fully dark when the night condition is false
-                    "SPOT = 120", "SPOT_SHARPNESS = 0.25",
-                    "RANGE = 28", "RANGE_GRADIENT_OFFSET = 0.15",
-                    "FADE_AT = 280", "FADE_SMOOTH = 40",
-                    "CONDITION = NIGHT_SMOOTH", "SPECULAR_MULT = 1", ""]
+                    f"SPOT = {st_spot}", "SPOT_SHARPNESS = 0.3",
+                    f"RANGE = {st_range}", "RANGE_GRADIENT_OFFSET = 0.2",
+                    f"FADE_AT = {st_fade}", "FADE_SMOOTH = 35",
+                    "CONDITION = NIGHT_SMOOTH", "SPECULAR_MULT = 0.6", ""]
         out += ["; --- lamp fixtures glow at night --------------------------------------------",
                 "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                "VALUE_0 = 255, 214, 150, 1.6",             # ksEmissive is 0-255 RGB + brightness
+                f"VALUE_0 = 255, 214, 150, {st_emissive}",  # ksEmissive is 0-255 RGB + brightness (gentle glow)
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 

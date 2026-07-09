@@ -23,39 +23,49 @@ def _gauss_kernel(radius: int, sigma: float) -> list[float]:
     return [x / s for x in w]
 
 
+def _smooth_channel(vals: list[float], radius: int, ker: list[float], passes: int, closed: bool) -> list[float]:
+    m = len(vals)
+    for _ in range(int(passes)):
+        nv = [0.0] * m
+        for i in range(m):
+            acc = 0.0
+            for k in range(-radius, radius + 1):
+                j = (i + k) % m if closed else min(m - 1, max(0, i + k))
+                acc += ker[k + radius] * vals[j]
+            nv[i] = acc
+        if not closed:
+            nv[0], nv[-1] = vals[0], vals[-1]          # pin open endpoints
+        vals = nv
+    return vals
+
+
 def smooth_centerline(points: list[Vertex], *, sigma_pts: float = 2.0, passes: int = 2,
-                      radius: int | None = None) -> list[Vertex]:
-    """Round the horizontal kinks in ``points`` [(x,y,z)...]. X,Z are Gaussian-smoothed (wrap-around for a
-    closed loop, endpoints pinned for an open line); Y is preserved per index. Returns a NEW list with the
-    same length and same closure. ``sigma_pts``/``passes`` control roundness; larger = smoother (but cuts
-    corners more). A no-op when ``sigma_pts<=0`` or ``passes<=0``."""
+                      sigma_y_pts: float = 0.0, y_passes: int = 2, radius: int | None = None) -> list[Vertex]:
+    """Round the kinks in ``points`` [(x,y,z)...]. X,Z are Gaussian-smoothed horizontally (wrap-around for a
+    closed loop, endpoints pinned for an open line). ``sigma_y_pts`` (>0) ALSO smooths the vertical Y profile
+    along the arc — this removes the bare-earth DEM's steps/notches (bridges sag to the freeway floor, etc.)
+    that launch the car, while keeping the real overall grade. Returns a NEW list, same length + closure.
+    A no-op when ``sigma_pts<=0`` or ``passes<=0`` (horizontal); Y is preserved when ``sigma_y_pts<=0``."""
     n = len(points)
-    if n < 5 or sigma_pts <= 0 or passes <= 0:
+    horiz = sigma_pts > 0 and passes > 0
+    vert = sigma_y_pts > 0 and y_passes > 0
+    if n < 5 or not (horiz or vert):
         return [tuple(p) for p in points]
     closed = abs(points[0][0] - points[-1][0]) < 1e-6 and abs(points[0][2] - points[-1][2]) < 1e-6
     ring = points[:-1] if closed else points          # unique vertices (drop the closing duplicate)
     m = len(ring)
-    radius = radius if radius else max(1, int(round(3.0 * sigma_pts)))
-    ker = _gauss_kernel(radius, sigma_pts)
     xs = [p[0] for p in ring]
     ys = [p[1] for p in ring]
     zs = [p[2] for p in ring]
-    for _ in range(int(passes)):
-        nx = [0.0] * m
-        nz = [0.0] * m
-        for i in range(m):
-            ax = az = 0.0
-            for k in range(-radius, radius + 1):
-                w = ker[k + radius]
-                j = (i + k) % m if closed else min(m - 1, max(0, i + k))
-                ax += w * xs[j]
-                az += w * zs[j]
-            nx[i] = ax
-            nz[i] = az
-        if not closed:
-            nx[0], nz[0] = xs[0], zs[0]                # pin the open endpoints so the route still starts/ends put
-            nx[-1], nz[-1] = xs[-1], zs[-1]
-        xs, zs = nx, nz
+    if horiz:
+        r = radius if radius else max(1, int(round(3.0 * sigma_pts)))
+        ker = _gauss_kernel(r, sigma_pts)
+        xs = _smooth_channel(xs, r, ker, passes, closed)
+        zs = _smooth_channel(zs, r, ker, passes, closed)
+    if vert:
+        ry = max(1, int(round(3.0 * sigma_y_pts)))
+        kery = _gauss_kernel(ry, sigma_y_pts)
+        ys = _smooth_channel(ys, ry, kery, y_passes, closed)
     out: list[Vertex] = [(xs[i], ys[i], zs[i]) for i in range(m)]
     if closed:
         out.append(out[0])                             # restore the closing duplicate vertex
