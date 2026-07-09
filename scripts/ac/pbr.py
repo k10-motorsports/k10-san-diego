@@ -48,6 +48,9 @@ TEXTURES = {
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
     "PALMTRUNK": ("palm_bark.png", None, 0.90, (0.45, 0.38, 0.28, 1), 0.0, False),  # tapered palm trunk (bark_139)
     "PALMFROND": ("palm_frond.png", None, 0.72, (0.24, 0.40, 0.16, 1), 0.0, False),  # drooping fan-crown leaf cards (alpha cutout)
+    "TREETRUNK": ("palm_bark.png", None, 0.92, (0.34, 0.26, 0.18, 1), 0.0, False),  # broadleaf shade-tree trunk (bark)
+    "TREECANOPY": (None, None, 0.94, (0.21, 0.36, 0.16, 1), 0.0, False),            # opaque green shade canopy (off-road, in yards)
+    "SCRUB":    (None, None, 0.95, (0.40, 0.42, 0.25, 1), 0.0, False),              # dry chaparral bush on the open hillsides
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels

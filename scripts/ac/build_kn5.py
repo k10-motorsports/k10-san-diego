@@ -121,7 +121,7 @@ def main():
     import bmesh
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         me = ob.data
-        if not ob.name.upper().startswith("PALM"):   # palms carry authored bark/frond UVs — don't flatten
+        if not ob.name.upper().startswith(("PALM", "TREE", "SCRUB")):   # props carry authored UVs — don't flatten
             planar_uv(me)
         bm = bmesh.new(); bm.from_mesh(me)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)

@@ -644,6 +644,18 @@ def main():
                                        spacing=float(_scn.get("palm_spacing_m", 28.0)))
         print(f"[blend] {npalm} palms scattered on {palm_roads}")
 
+    # --- off-road neighbourhood scenery: shade trees in the yards + scrub on the hillsides ---
+    scen = {"TREETRUNK": {"vertices": [], "tris": [], "uvs": []},
+            "TREECANOPY": {"vertices": [], "tris": [], "uvs": []},
+            "SCRUB": {"vertices": [], "tris": [], "uvs": []}}
+    if _scn.get("scatter_trees") or _scn.get("scatter_scrub"):
+        from scripts.geometry import scenery
+        scen, ntree, nscrub = scenery.scatter(
+            grid_xyz, centerline, widths,
+            tree_pct=int(_scn.get("tree_pct", 40)) if _scn.get("scatter_trees") else 0,
+            scrub_pct=int(_scn.get("scrub_pct", 26)) if _scn.get("scatter_scrub") else 0)
+        print(f"[blend] scenery: {ntree} shade trees + {nscrub} scrub (all placed off-road)")
+
     # --- fresh scene ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_mesh("TERRAIN", terrain, (0.30, 0.42, 0.20, 1.0))
@@ -659,6 +671,9 @@ def main():
     make_mesh("BUILDING", bmeshes["BUILDING"], (0.62, 0.62, 0.60, 1.0))
     make_mesh("PALMTRUNK", palms["PALMTRUNK"], (0.45, 0.38, 0.28, 1.0))   # tall Mexican fan palm trunk
     make_mesh("PALMFROND", palms["PALMFROND"], (0.24, 0.40, 0.16, 1.0))   # drooping fan crown (alpha)
+    make_mesh("TREETRUNK", scen["TREETRUNK"], (0.34, 0.26, 0.18, 1.0))    # broadleaf shade-tree trunk
+    make_mesh("TREECANOPY", scen["TREECANOPY"], (0.21, 0.36, 0.16, 1.0))  # shade canopy (in the yards)
+    make_mesh("SCRUB", scen["SCRUB"], (0.40, 0.42, 0.25, 1.0))            # dry chaparral on the hillsides
     print(f"[blend] {len(lampheads)} streetlights placed (collision-checked)")
 
     ys = [p[1] for p in centerline]

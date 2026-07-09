@@ -61,6 +61,11 @@
       "Jackson Drive",
       "Lake Murray Boulevard"
     ],
-    "palm_spacing_m": 28
+    "palm_spacing_m": 28,
+    "_scenery_doc": "Off-road only: shade trees populate the near ring past the road edge (the yards), scrub the open ground further out. Placement is gated on distance-to-nearest-road so nothing lands on the drivable surface.",
+    "scatter_trees": true,
+    "scatter_scrub": true,
+    "tree_pct": 38,
+    "scrub_pct": 24
   }
 }
