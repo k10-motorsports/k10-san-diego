@@ -139,6 +139,105 @@ def stitch_network(road_lines: list[list[Vertex]], *, loop: bool) -> list[Vertex
     return road_route.route_waypoints(waypoints, margin_m=600.0)
 
 
+def stitch_freeway(refs: list[str], bbox, cache_path, *, loop: bool = True) -> list[Vertex]:
+    """Route a FREEWAY loop by ref (I 5, CA 52, CA 163, I 8) — the fix for the self-crossing tangle.
+
+    Divided freeways broke ``stitch_network``: its naive unweighted shortest-path jumps between the two
+    carriageways and up/down ramps at every interchange. Here each freeway is routed with the NAME-weighted
+    graph keyed on ``ref``: ``street_line`` gives one clean carriageway per freeway, and each freeway edge
+    is Dijkstra-routed between its two interchanges preferring that ref — so it stays on the freeway and
+    only touches ramps at the transitions. The interchange point is the closest approach between two
+    consecutive freeways' lines; consecutive edges share it, so the four edges close into one clean loop.
+    """
+    from scripts.gps.street_route import fetch_network, StreetGraph
+
+    ways = fetch_network(tuple(bbox), Path(cache_path))
+    g = StreetGraph(ways, key="ref")
+    lines = [g.street_line(r) for r in refs]
+    missing = [r for r, ln in zip(refs, lines) if len(ln) < 2]
+    if missing:
+        raise SystemExit(f"freeway ref(s) not found/routable in bbox: {missing}")
+    n = len(refs)
+
+    def near_pair(a: list[Vertex], b: list[Vertex], cap: int = 500):
+        ai = range(0, len(a), max(1, len(a) // cap))
+        bi = range(0, len(b), max(1, len(b) // cap))
+        best = (0, 0, 1e18)
+        for i in ai:
+            for j in bi:
+                d = (a[i][0] - b[j][0]) ** 2 + ((a[i][1] - b[j][1]) * 1.19) ** 2
+                if d < best[2]:
+                    best = (i, j, d)
+        return best
+
+    # Each freeway is CLIPPED to the portion between its two interchanges (closest approach to each
+    # neighbour), giving one clean single-carriageway segment per freeway; the segments concatenate into a
+    # quadrilateral. Where two freeways run antiparallel through an interchange, the closest-approach clip
+    # overshoots and the straight join darts out-and-back (the CA-52/CA-163 spike). ``_despike`` then
+    # collapses those short out-and-backs, so the loop turns cleanly at every corner.
+    junc = [near_pair(lines[k], lines[(k + 1) % n]) for k in range(n if loop else n - 1)]
+    segs: list[list[Vertex]] = []
+    for k in range(n):
+        line = lines[k]
+        a = junc[(k - 1) % len(junc)][1] if (loop or k > 0) else 0            # entry: prev freeway met here
+        b = junc[k][0] if (loop or k < n - 1) else len(line) - 1              # exit: meets next freeway here
+        segs.append(line[a:b + 1] if a <= b else line[b:a + 1][::-1])
+    # Trim overshoot at each interchange so the join goes FORWARD, never backward (antiparallel spike).
+    for k in range(n if loop else n - 1):
+        segs[k], segs[(k + 1) % n] = _trim_join(segs[k], segs[(k + 1) % n])
+    ring: list[Vertex] = []
+    for seg in segs:
+        ring += seg
+    return _despike(ring)
+
+
+def _trim_join(a: list[Vertex], b: list[Vertex], max_trim: int = 60) -> tuple[list[Vertex], list[Vertex]]:
+    """Trim ``a``'s tail and ``b``'s head so the straight bridge a[-1]->b[0] points forward w.r.t. both
+    segments' local headings — removes the out-and-back where clip points sit past each other."""
+    for _ in range(max_trim):
+        if len(a) < 3:
+            break
+        hx, hy = a[-1][0] - a[-2][0], a[-1][1] - a[-2][1]     # a's exit heading
+        dx, dy = b[0][0] - a[-1][0], b[0][1] - a[-1][1]        # bridge vector
+        if hx * dx + hy * dy < 0:                              # bridge points backward -> a overshot
+            a = a[:-1]
+        else:
+            break
+    for _ in range(max_trim):
+        if len(b) < 3:
+            break
+        hx, hy = b[1][0] - b[0][0], b[1][1] - b[0][1]          # b's entry heading
+        dx, dy = b[0][0] - a[-1][0], b[0][1] - a[-1][1]        # bridge arrival vector
+        if hx * dx + hy * dy < 0:                              # bridge arrives against b's heading -> b overshot
+            b = b[1:]
+        else:
+            break
+    return a, b
+
+
+def _despike(ring: list[Vertex], *, window: int = 30, close_m: float = 30.0) -> list[Vertex]:
+    """Collapse out-and-back overshoots: where the path returns within ``close_m`` of a point <=``window``
+    steps back, cut the little loop between them. Real freeway curves never return that close that fast, so
+    only interchange spikes/hairpins are removed."""
+    def m(p, q):
+        return math.hypot((p[0] - q[0]) * 90000.0, (p[1] - q[1]) * 111000.0)
+    out = list(ring)
+    changed = True
+    while changed:
+        changed = False
+        i = 0
+        while i < len(out) - 2:
+            jcut = -1
+            for j in range(i + 2, min(i + window, len(out))):
+                if m(out[i], out[j]) < close_m:
+                    jcut = j                                  # farthest close return -> cut the whole spike
+            if jcut > 0:
+                del out[i + 1:jcut]
+                changed = True
+            i += 1
+    return out
+
+
 def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Vertex]:
     """Resample a polyline to even ``spacing_m`` spacing (linear interp; fine at metre scale)."""
     if len(pl) < 2:
@@ -189,30 +288,33 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     road_names = route["roads"]
     connectors_cfg = route.get("connectors", {})
 
-    all_names = list(road_names) + [n for v in connectors_cfg.values() for n in v]
-    fetched = overpass.fetch_ways(bbox, all_names)
-
-    road_lines = [merge_ways(fetched[n]) for n in road_names]
-    missing = [n for n, line in zip(road_names, road_lines) if not line]
-    if missing:
-        raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
-
-    if route.get("stitch") == "network":
-        # Route along the real OSM network through the ordered roads — robust to divided arterials
-        # and far-apart junctions (see stitch_network). Corner gaps are N/A (the router bridges them).
-        ring = stitch_network(road_lines, loop=cfg.loop)
+    connectors: dict[str, list[Vertex]] = {}
+    if route.get("stitch") == "freeway":
+        # Freeways route by ref along the real network (one carriageway, real ramps) — see stitch_freeway.
+        ring = stitch_freeway(road_names, bbox, project_dir / "data" / "network.cache.json", loop=cfg.loop)
         corner_gaps = []
     else:
-        ring, corner_gaps = build_ring(road_lines)
+        all_names = list(road_names) + [n for v in connectors_cfg.values() for n in v]
+        fetched = overpass.fetch_ways(bbox, all_names)
+        road_lines = [merge_ways(fetched[n]) for n in road_names]
+        missing = [n for n, line in zip(road_names, road_lines) if not line]
+        if missing:
+            raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
+        if route.get("stitch") == "network":
+            # Route along the real OSM network through the ordered roads — robust to divided arterials
+            # and far-apart junctions (see stitch_network). Corner gaps are N/A (the router bridges them).
+            ring = stitch_network(road_lines, loop=cfg.loop)
+            corner_gaps = []
+        else:
+            ring, corner_gaps = build_ring(road_lines)
+        for cname, rnames in connectors_cfg.items():
+            merged = merge_ways([w for rn in rnames for w in fetched.get(rn, [])])
+            connectors[cname] = resample(merged, RESAMPLE_SPACING_M) if merged else []
+
     if cfg.loop and ring and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
     ring = resample(ring, RESAMPLE_SPACING_M)
     widths = [cfg.default_width_m] * len(ring)
-
-    connectors: dict[str, list[Vertex]] = {}
-    for cname, rnames in connectors_cfg.items():
-        merged = merge_ways([w for rn in rnames for w in fetched.get(rn, [])])
-        connectors[cname] = resample(merged, RESAMPLE_SPACING_M) if merged else []
 
     length_m = polyline_length(ring)
     features = [

@@ -17,7 +17,12 @@
     "_doc": "The loop is stitched from the named roads below along the real OSM drivable network (route.stitch='network'), then sampled for real elevation. data/network.cache.json is a cached OSM fetch so re-derivation never depends on a live Overpass call."
   },
   "route": {
-    "bbox": [32.76, -117.075, 32.808, -116.998],
+    "bbox": [
+      32.76,
+      -117.075,
+      32.808,
+      -116.998
+    ],
     "roads": [
       "Alvarado Road",
       "College Avenue",
@@ -41,10 +46,25 @@
     "kerb": "1KERB"
   },
   "layouts": [
-    { "id": "full", "ai": "ai/full", "uses_connectors": [], "_doc": "The Lake Murray main loop. Single layout." }
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": [],
+      "_doc": "The Lake Murray main loop. Single layout."
+    },
+    {
+      "id": "freeway",
+      "ai": "ai/freeway",
+      "uses_connectors": [],
+      "_doc": "I-5 -> CA-52 -> CA-163 -> I-8 freeway loop, re-routed clean (ref-weighted, one carriageway). Separate kn5 placed by models_freeway.ini offset."
+    }
   ],
   "lighting": {
-    "presets": ["golden_hour", "noon", "morning"]
+    "presets": [
+      "golden_hour",
+      "noon",
+      "morning"
+    ]
   },
   "terrain": {
     "_doc": "Lessons carried over from the prior build. Roads and kerbs stay TIGHT to their real sampled elevation. The grass terrain is clamped so the raw DEM's Cowles-area peaks can't tower over a neighborhood loop where there are none.",

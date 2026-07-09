@@ -63,6 +63,7 @@ def fetch_network(bbox_swne: tuple[float, float, float, float], cache: Path | No
                 req = urllib.request.Request(m, data=body, headers={"User-Agent": "prodrive-ac-builder"})
                 payload = json.load(urllib.request.urlopen(req, timeout=75))
                 ways = [{"name": el.get("tags", {}).get("name"),
+                         "ref": el.get("tags", {}).get("ref"),        # freeways route by ref (I 5, CA 52), not name
                          "highway": el["tags"].get("highway"),
                          "geom": [(g["lon"], g["lat"]) for g in el.get("geometry") or []]}
                         for el in payload.get("elements", [])
@@ -77,14 +78,24 @@ def fetch_network(bbox_swne: tuple[float, float, float, float], cache: Path | No
     raise RuntimeError(f"all Overpass mirrors failed: {last!r}")
 
 
-class StreetGraph:
-    """Drivable-network graph with named-street routing."""
+def _tokens(v: str | None) -> list[str]:
+    """OSM ref/name can carry concurrencies ('I 5;CA 8') — split so each route is matched independently."""
+    return [t.strip() for t in v.split(";")] if v else []
 
-    def __init__(self, ways: list[dict]):
+
+class StreetGraph:
+    """Drivable-network graph with named-street routing.
+
+    ``key`` picks the tag to route on: 'name' for surface streets, 'ref' for freeways (which carry
+    'I 5'/'CA 52' in ref, not name). Concurrency refs ('I 5;CA 8') are token-matched, so routing 'I 8'
+    still follows a segment signed 'I 8;CA 15'.
+    """
+
+    def __init__(self, ways: list[dict], key: str = "name"):
         self.adj: dict[Vertex, list[tuple[Vertex, float, str | None]]] = defaultdict(list)
         self.name_nodes: dict[str, set[Vertex]] = defaultdict(set)
         for way in ways:
-            nm = way.get("name")
+            nm = way.get(key)
             geom = way["geom"]
             for i in range(len(geom) - 1):
                 a = (round(geom[i][0], SNAP), round(geom[i][1], SNAP))
@@ -94,9 +105,9 @@ class StreetGraph:
                 d = _hav(a, b)
                 self.adj[a].append((b, d, nm))
                 self.adj[b].append((a, d, nm))
-                if nm:
-                    self.name_nodes[nm].add(a)
-                    self.name_nodes[nm].add(b)
+                for tok in _tokens(nm):
+                    self.name_nodes[tok].add(a)
+                    self.name_nodes[tok].add(b)
 
     def nearest_node(self, pt: Vertex) -> Vertex:
         return min(self.adj, key=lambda nd: (nd[0] - pt[0]) ** 2 + (nd[1] - pt[1]) ** 2)
@@ -112,7 +123,7 @@ class StreetGraph:
             if d > dist.get(u, 9e18):
                 continue
             for v, w, nm in self.adj[u]:
-                cost = w if (prefer is None or nm == prefer) else w * OFF_NAME_PENALTY
+                cost = w if (prefer is None or prefer in _tokens(nm)) else w * OFF_NAME_PENALTY
                 nd = d + cost
                 if nd < dist.get(v, 9e18):
                     dist[v] = nd
@@ -149,7 +160,7 @@ class StreetGraph:
                 u = stack.pop()
                 comp.append(u)
                 for v, wlen, nm in self.adj[u]:
-                    if nm == name:
+                    if name in _tokens(nm):
                         comp_len += wlen / 2  # each edge visited from both ends
                         if v not in seen:
                             seen.add(v)
