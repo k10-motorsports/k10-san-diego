@@ -20,8 +20,10 @@ TEXTURES = {
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "CURB":    (None, None, 0.70, (0.64, 0.64, 0.66, 1), 0.0, False),   # concrete street curb (visual)
     "SIDEWALK": (None, None, 0.75, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete sidewalk slab
-    "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
-    "YLINE":    (None, None, 0.45, (0.86, 0.68, 0.10, 1), 0.0, False),  # solid double-yellow centreline (shape = geometry)
+    # Lines carry a SOLID-COLOUR TEXTURE, not a flat material colour: a texture-less kn5 material renders
+    # BLACK in-engine (the "lines end up black" bug) — texture presence is what keeps them white/yellow.
+    "MARKINGS": ("line_white.png", None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines (shape = geometry)
+    "YLINE":    ("line_yellow.png", None, 0.45, (0.86, 0.68, 0.10, 1), 0.0, False),  # solid double-yellow centreline
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
     "1LAWN":   ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated suburban green turf (SoCal neighbourhood tiles)
     "1GRASS":  ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated SoCal neighbourhood turf (green)
