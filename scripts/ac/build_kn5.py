@@ -23,6 +23,10 @@ import bpy  # provided by Blender
 AC_NAME = {
     "ROAD": "1ROAD_road",
     "KERB": "1KERB_kerb",
+    # The Lake Murray street curb+sidewalk ships as the working mesh "CURB". Remap it to a 1KERB_ physical
+    # surface so (a) it's collidable — the car can't fall through the road-edge/grass gap it bridges — and
+    # (b) it gets the face-up flip below. Without this it stayed "CURB": non-physical AND textureless=black.
+    "CURB": "1KERB_sidewalk",
     "TERRAIN": "1GRASS",
     "GUARDRAIL": "1WALL_guard",
 }
