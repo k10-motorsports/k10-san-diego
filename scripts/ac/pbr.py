@@ -48,10 +48,12 @@ TEXTURES = {
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
     "RFMETAL": ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.60, (0.55, 0.57, 0.60, 1), 0.15, False),  # corrugated-metal roof (on metal warehouses)
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
-    "GUARDRAIL": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),  # swept freeway W-beam guardrail (metal)
+    # guardrail_diffuse/normal were removed in the CC0 pass (mined) -> bind the CC0 cement tile so the rail
+    # renders as a low grey concrete barrier instead of BLACK (textureless kn5 material = black in-engine).
+    "GUARDRAIL": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.55, (0.74, 0.75, 0.77, 1), 0.10, False),  # I-8 bridge rail
     # 1WALL_GUARD BEFORE 1WALL: build_kn5 renames GUARDRAIL -> 1WALL_guard before materials bind, and
-    # prefix order = match priority — without the sub-prefix first, the metal guardrail would bind concrete.
-    "1WALL_GUARD": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),
+    # prefix order = match priority — without the sub-prefix first it would fall through to the 1WALL tile.
+    "1WALL_GUARD": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.55, (0.74, 0.75, 0.77, 1), 0.10, False),
     "1WALL":   ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.85, (0.70, 0.69, 0.66, 1), 0.0, False),  # physical concrete freeway barrier (network pipeline, collidable)
     "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel

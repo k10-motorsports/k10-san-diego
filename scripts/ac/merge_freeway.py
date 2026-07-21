@@ -23,7 +23,10 @@ from pathlib import Path
 
 from scripts.geometry.projection import _meters_per_degree
 
-DROP_ENV = ("MOUNTAINS",)   # the loop has its own terrain context; drop any far backdrop from the freeway env
+# Drop freeway env groups that have no redistributable texture (would render BLACK in-engine): the mined
+# bushes atlas + the CSP-water plane were removed in the CC0 pass. The freeway's value is its roads +
+# structures + terrain (track.obj); its light poles survive. MOUNTAINS dropped (the loop has its own context).
+DROP_ENV = ("MOUNTAINS", "BUSHES", "WATER")
 
 
 def _transform_obj(inp: Path, outp: Path, dx: float, dy: float, dz: float, suffix: str, drop=()) -> tuple[int, int]:
