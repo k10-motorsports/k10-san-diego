@@ -13,12 +13,19 @@ import math
 from collections import defaultdict
 
 
-def _road_dist_fn(centerline, widths, bucket=60.0):
-    """Return nearest(x,z) -> (distance_to_road_centreline, that_road's_half_width). Bucketed → O(1)."""
+def _road_dist_fn(centerline, widths, extra_roads=None, bucket=60.0):
+    """Return nearest(x,z) -> (distance_to_road_centreline, that_road's_half_width). Bucketed → O(1).
+    ``extra_roads`` = [(points_xyz, widths), ...] folds the Del Cerro sub-loop + split carriageways into
+    the same lookup so scenery clears THEM too (else trees/scrub land in the opposing carriageway)."""
     rb = defaultdict(list)
-    for i in range(len(centerline)):
-        x, _y, z = centerline[i]
-        rb[(int(x // bucket), int(z // bucket))].append((x, z, widths[i] / 2.0))
+
+    def _add(pts, ws):
+        for i in range(len(pts)):
+            x, _y, z = pts[i]
+            rb[(int(x // bucket), int(z // bucket))].append((x, z, ws[i] / 2.0))
+    _add(centerline, widths)
+    for pts, ws in (extra_roads or []):
+        _add(pts, ws)
     def nearest(x, z):
         bx, bz = int(x // bucket), int(z // bucket)
         best_d, best_hw = 1e18, 8.0
@@ -79,11 +86,11 @@ def _add_blob(cx, cy, cz, r, mesh, *, squash=1.0, seed=0, rings=4, seg=7):
 
 def scatter(grid_xyz, centerline, widths, *, tree_pct=40, scrub_pct=26,
             tree_band=(6.0, 22.0), scrub_band=(24.0, 95.0),
-            tree_cap=450, scrub_cap=1000):
+            tree_cap=450, scrub_cap=1000, extra_roads=None):
     """Walk the terrain grid; for each cell (jittered) place a shade tree in the near off-road ring or a
-    scrub bush further out, gated by distance past the road edge. Returns
-    ({'TREETRUNK':..,'TREECANOPY':..,'SCRUB':..}, n_trees, n_scrub)."""
-    nearest = _road_dist_fn(centerline, widths)
+    scrub bush further out, gated by distance past the road edge. ``extra_roads`` keeps the sub-loop +
+    split carriageways clear too. Returns ({'TREETRUNK':..,'TREECANOPY':..,'SCRUB':..}, n_trees, n_scrub)."""
+    nearest = _road_dist_fn(centerline, widths, extra_roads)
     trunk = {"vertices": [], "tris": [], "uvs": []}
     canopy = {"vertices": [], "tris": [], "uvs": []}
     scrub = {"vertices": [], "tris": [], "uvs": []}

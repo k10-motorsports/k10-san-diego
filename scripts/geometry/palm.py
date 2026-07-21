@@ -81,21 +81,31 @@ def _clear_of_road(ox, oz, road_cells, cell):
 
 
 def scatter(centerline, widths, terr, on_mask, *, spacing=28.0, offset=5.5,
-            hmin=10.0, hmax=13.5) -> tuple[dict, int]:
+            hmin=10.0, hmax=13.5, extra_roads=None) -> tuple[dict, int]:
     """Drop a palm every ``spacing`` m of arc on BOTH verges of the masked stretch. ``terr(x,z)`` samples
     ground height; ``offset`` sits the palm this far beyond the road edge (on the parkway). ``on_mask[i]``
-    selects which centreline vertices get palms. Returns ({'PALMTRUNK':..,'PALMFROND':..}, count)."""
+    selects which centreline vertices get palms. ``extra_roads`` = [(points_xyz, widths), ...] are the
+    sub-loop + split carriageways — palms are rejected inside THEIR pavement too (else a loop-verge palm
+    lands in the opposing carriageway alongside). Returns ({'PALMTRUNK':..,'PALMFROND':..}, count)."""
     trunk = {"vertices": [], "tris": [], "uvs": []}
     frond = {"vertices": [], "tris": [], "uvs": []}
     # spatial hash of the WHOLE road corridor (every station's half-width + a clear-zone margin) so a palm
     # is rejected if it lands in the pavement of ANY station, not just its own — the drive-test clear zone.
     CLEAR_MARGIN = 4.5
-    CELL = 40.0     # > widest road half + margin, so a palm inside any road disc is caught by a ±1-cell scan
+    FROND_REACH = 4.5   # extra lines get a WIDER keep-out: a divided road can ride a different grade
+    #                     (College's ~6 m split), so a palm cleared laterally can still DROOP its crown
+    #                     over the elevated opposing carriageway — reject out to trunk + frond spread.
+    CELL = 50.0     # > widest road half + margin, so a palm inside any road disc is caught by a ±1-cell scan
     road_cells: dict = {}
-    for k in range(len(centerline)):
-        cx, _cy, cz = centerline[k]
-        r = widths[k] / 2.0 + CLEAR_MARGIN
-        road_cells.setdefault((int(cx // CELL), int(cz // CELL)), []).append((cx, cz, r))
+
+    def _hash_road(pts, ws, margin):
+        for k in range(len(pts)):
+            cx, _cy, cz = pts[k]
+            r = ws[k] / 2.0 + margin
+            road_cells.setdefault((int(cx // CELL), int(cz // CELL)), []).append((cx, cz, r))
+    _hash_road(centerline, widths, CLEAR_MARGIN)
+    for pts, ws in (extra_roads or []):
+        _hash_road(pts, ws, CLEAR_MARGIN + FROND_REACH)
     acc = spacing
     count = 0
     for i in range(len(centerline) - 1):

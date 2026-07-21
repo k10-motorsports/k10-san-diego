@@ -135,38 +135,11 @@ class TriField:
         return hits
 
 
-def run(project_dir: str | Path) -> dict:
-    project = Path(project_dir)
-    data = project / "data"
-    cfg = json.loads((project / "track.config.json").read_text())
-    fin = data / "finished_centerline.json"
-    if fin.exists():
-        # the line the ribbon was actually swept along (already in mesh frame) — driving the raw
-        # centerline instead reads phantom obstructions where corner-rounding moved the pavement
-        lc = json.loads(fin.read_text())
-        pts = [tuple(p) for p in lc["points_xyz_m"]]
-    else:
-        mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
-        lc = json.loads((data / "centerline.local.json").read_text())
-        pts = [(mirror * p[0], p[1], p[2]) for p in lc["points_xyz_m"]]
-    widths = lc["widths_m"]
-
-    surface = TriField()      # everything the car can roll on
-    obstacle = TriField()     # everything else that could stand in the corridor
-    for objfile in ("track.obj", "environment.obj"):
-        p = data / objfile
-        if not p.exists():
-            continue
-        verts, groups = _load_obj(p)
-        for grp in groups:
-            up = grp["name"].upper()
-            if up.startswith(PAINT):
-                continue
-            field = surface if up.startswith(DRIVABLE) else obstacle
-            for tri in grp["tris"]:
-                field.add(verts, tri, grp["name"])
-
-    # six wheel paths: wheel pair around center line + around left/right third lines
+def _sweep(pts, widths, surface, obstacle, edge_skip=0.0):
+    """Drive the six wheel paths along ONE line (main ring OR an extra connector/carriageway); return
+    (problems, obst_names, lap_m). Each line is independent — heights/slopes reset at its start.
+    ``edge_skip`` (m) exempts the ends from the soft-top check: an OPEN street legitimately terminates in
+    grass at its ends (a dead-end / where it should tie into the loop), which is a road end, not a hole."""
     n = len(pts)
     st = [0.0]
     for i in range(1, n):
@@ -203,7 +176,7 @@ def run(project_dir: str | Path) -> dict:
                 prev_h[pi] = None
                 prev_slope[pi] = None
                 continue
-            if owner and owner.upper().startswith(SOFT):
+            if owner and owner.upper().startswith(SOFT) and edge_skip <= s <= lap - edge_skip:
                 problems["soft_top_in_lane"].append((round(s, 1), round(off, 2), owner))
             if prev_h[pi] is not None:
                 dh = h - prev_h[pi]
@@ -227,6 +200,74 @@ def run(project_dir: str | Path) -> dict:
                 problems["obstructions"].append((round(s, 1), name))
                 obst_names[name] += 1
         s += STEP_M
+    return problems, obst_names, lap
+
+
+def run(project_dir: str | Path) -> dict:
+    project = Path(project_dir)
+    data = project / "data"
+    cfg = json.loads((project / "track.config.json").read_text())
+    fin = data / "finished_centerline.json"
+    if fin.exists():
+        # the line the ribbon was actually swept along (already in mesh frame) — driving the raw
+        # centerline instead reads phantom obstructions where corner-rounding moved the pavement
+        lc = json.loads(fin.read_text())
+        pts = [tuple(p) for p in lc["points_xyz_m"]]
+    else:
+        mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
+        lc = json.loads((data / "centerline.local.json").read_text())
+        pts = [(mirror * p[0], p[1], p[2]) for p in lc["points_xyz_m"]]
+    widths = lc["widths_m"]
+
+    surface = TriField()      # everything the car can roll on
+    obstacle = TriField()     # everything else that could stand in the corridor
+    for objfile in ("track.obj", "environment.obj"):
+        p = data / objfile
+        if not p.exists():
+            continue
+        verts, groups = _load_obj(p)
+        for grp in groups:
+            up = grp["name"].upper()
+            if up.startswith(PAINT):
+                continue
+            field = surface if up.startswith(DRIVABLE) else obstacle
+            for tri in grp["tris"]:
+                field.add(verts, tri, grp["name"])
+
+    # Drive the main ring PLUS every extra line (Del Cerro sub-loop + split carriageways). The extras were
+    # invisible to earlier releases — this test only swept the main centerline, so their floating/disconnected
+    # ribbons never registered. Drive each on its FINISHED (smoothed, mesh-frame) geometry so phantom
+    # obstructions from corner-rounding don't fire; fall back to the raw connectors.local.json otherwise.
+    paths_to_drive = [("loop", pts, widths)]
+    mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
+    fc = data / "finished_connectors.json"
+    craw = data / "connectors.local.json"
+    if fc.exists():
+        for c in json.loads(fc.read_text()):
+            cp = [tuple(p) for p in c["points_xyz_m"]]
+            if len(cp) >= 2:
+                paths_to_drive.append((c["name"], cp, c["widths_m"]))
+    elif craw.exists():
+        for c in json.loads(craw.read_text()).get("connectors", []):
+            cp = [(mirror * p[0], p[1], p[2]) for p in c["points_xyz_m"]]
+            if len(cp) >= 2:
+                paths_to_drive.append((c["name"], cp, c["widths_m"]))
+
+    problems = {"soft_top_in_lane": [], "steps": [], "severe_steps": [], "kinks": [], "obstructions": []}
+    obst_names = defaultdict(int)
+    lap = 0.0
+    per_path = []
+    for pname, pp, ww in paths_to_drive:
+        # the main ring is CLOSED (no ends); extra lines are OPEN — exempt their termini from soft-top
+        edge_skip = 0.0 if pname == "loop" else 4.0
+        pr, on, lp = _sweep(pp, ww, surface, obstacle, edge_skip)
+        lap += lp
+        for k in problems:
+            problems[k] += pr[k]
+        for k, v in on.items():
+            obst_names[k] += v
+        per_path.append((pname, round(lp), len(pr["soft_top_in_lane"]),
+                         len(set(ss for ss, _ in pr["obstructions"])), len(pr["severe_steps"])))
 
     # collapse obstruction runs (one wall = many stations)
     per_km = lap / 1000
@@ -265,6 +306,11 @@ def run(project_dir: str | Path) -> dict:
     print(f"  slope kinks >{KINK_PCT}%% /km   : {report['kinks_per_km']}")
     print(f"  obstructed stations    : {report['obstruction_stations']}"
           + (f"  {report['obstruction_by_mesh']}" if obst_names else ""))
+    if len(per_path) > 1:
+        print("  per line (len m / soft-top / obstructed / severe):")
+        for pn, lp, sof, ob, sev in per_path:
+            flag = "  <-- FAIL" if (sof or ob) else ""
+            print(f"    {pn:22s} {lp:5d}m  soft {sof:3d}  obst {ob:3d}  severe {sev:3d}{flag}")
     for label, rows in (("soft_top", report["worst"]["soft_top"]),
                         ("severe", report["worst"]["severe_steps"]),
                         ("obstruction", report["worst"]["obstructions"][:8])):

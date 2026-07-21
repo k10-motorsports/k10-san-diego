@@ -242,7 +242,10 @@ def build_guardrails(centerline, widths, i8, *, h=0.95, over=22.0, pad=3):
         for side in (1, -1):
             base = len(verts)
             for k in range(a, b + 1):
-                x, y, z = centerline[k]; px, pz = perp(k); hw = widths[k] / 2
+                # seat the barrier ~0.4 m off the pavement edge (a real shoulder gap) so it sits just
+                # OUTSIDE the drive-test corridor rather than on its boundary — else it reads as an
+                # obstruction in the lane wherever the deck widens (e.g. the I-8 crossing at the closure).
+                x, y, z = centerline[k]; px, pz = perp(k); hw = widths[k] / 2 + 0.4
                 ex, ez = x + px * side * hw, z + pz * side * hw
                 verts.append((ex, y, ez))        # bottom (deck level)
                 verts.append((ex, y + h, ez))    # top
@@ -652,12 +655,22 @@ def main():
             for i in nm["idx"]:
                 if 0 <= i < len(widths):
                     widths[i] = min(widths[i], tw)
-            print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m)")
+            # TAPER the narrowing: a hard per-vertex width drop leaves a notch at each run boundary (full
+            # width → 9 m in one step — the 70 College notches the drive-test caught). Wrap-aware smooth so
+            # the ribbon eases into/out of the single carriageway like a real lane drop.
+            _w = widths; _n = len(_w); _K = 6
+            widths = [sum(_w[(i + d) % _n] for d in range(-_K, _K + 1)) / (2 * _K + 1) for i in range(_n)]
+            print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m), tapered")
 
     # persist the smoothed centerline + narrowed widths so build_kn5 (dummies) + minimap share this geometry
     local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
     local["widths_m"] = widths
     (data / "centerline.local.json").write_text(json.dumps(local))
+    # persist the FINISHED (smoothed, as-swept) extra-line paths so drive_test can sweep them on the exact
+    # geometry that landed in the mesh — the gate that was blind to these lines in v0.15–v0.17.
+    (data / "finished_connectors.json").write_text(json.dumps(
+        [{"name": n, "points_xyz_m": [[round(c, 4) for c in p] for p in cpts], "widths_m": cw}
+         for n, cpts, cw in connectors]))
 
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
@@ -751,8 +764,9 @@ def main():
 
         on_mask = [on_target(p[0], p[2]) for p in centerline]
         palms, npalm = palmmod.scatter(centerline, widths, _grid_sampler(grid_xyz), on_mask,
-                                       spacing=float(_scn.get("palm_spacing_m", 28.0)))
-        print(f"[blend] {npalm} palms scattered on {palm_roads}")
+                                       spacing=float(_scn.get("palm_spacing_m", 28.0)),
+                                       extra_roads=extra_roads)
+        print(f"[blend] {npalm} palms scattered on {palm_roads} (clear of extra lines)")
 
     # --- off-road neighbourhood scenery: shade trees in the yards + scrub on the hillsides ---
     scen = {"TREETRUNK": {"vertices": [], "tris": [], "uvs": []},
@@ -763,7 +777,8 @@ def main():
         scen, ntree, nscrub = scenery.scatter(
             grid_xyz, centerline, widths,
             tree_pct=int(_scn.get("tree_pct", 40)) if _scn.get("scatter_trees") else 0,
-            scrub_pct=int(_scn.get("scrub_pct", 26)) if _scn.get("scatter_scrub") else 0)
+            scrub_pct=int(_scn.get("scrub_pct", 26)) if _scn.get("scatter_scrub") else 0,
+            extra_roads=extra_roads)
         print(f"[blend] scenery: {ntree} shade trees + {nscrub} scrub (all placed off-road)")
 
     # --- fresh scene ---
