@@ -1,0 +1,148 @@
+{
+  "name": "San Diego Freeway Loop",
+  "slug": "san_diego_freeway_loop",
+  "version": "0.5.0",
+  "author": "k10-san-diego",
+  "year": 2026,
+  "_about": "A drivable FREEROAM loop of San Diego's central freeway box, built straight from OpenStreetMap: I-5 (west leg) -> SR-52 (north leg) -> SR-163 (east leg) -> I-8 (south leg), closed at the four stack interchanges. BOTH directional carriageways plus EVERY on/off ramp and interchange connector (cloverleaf/direct N<->S) come across as separate OSM motorway_link ways. Real USGS 3DEP terrain, physical concrete barrier WALLS along every freeway edge so you can't fly off into the desert, Mission Bay + the Pacific as water. Desert-themed dry ground (no green, no palms).",
+  "location": {
+    "lat": 32.7765,
+    "lon": -117.17,
+    "timezone": "America/Los_Angeles",
+    "city": "San Diego",
+    "country": "United States",
+    "_anchor": "I-8 in Mission Valley (straight WB stretch near the SR-163 stack) - AC_START snaps to the nearest freeway edge here."
+  },
+  "source": {
+    "type": "osm-network",
+    "_doc": "osm-network = fetch every drivable way of the listed highway classes inside bbox straight from Overpass, then node-snap them into one connected road GRAPH (scripts/gps/network.py). No KML. bbox is (south, west, north, east). motorway + motorway_link gives the 4 freeways, both carriageways, and every ramp/interchange connector in the box.",
+    "bbox": [
+      32.705,
+      -117.24,
+      32.855,
+      -117.13
+    ],
+    "highways": [
+      "motorway",
+      "motorway_link"
+    ],
+    "refs": [
+      "I 5",
+      "I 8",
+      "CA 52",
+      "CA 163"
+    ],
+    "_refs_doc": "Mainline carriageways are restricted to these exact OSM refs so I-805 (which threads the same box and CROSSES CA-163) is excluded. Ramps/links are kept regardless, then network.keep_largest_component prunes I-805's now-orphaned ramps."
+  },
+  "network": {
+    "_doc": "Graph-build knobs (scripts/gps/network.py). snap_grid kept SMALL so the two ~20 m-apart directional carriageways stay separate edges while coincident OSM ramp/mainline nodes still merge.",
+    "snap_grid_m": 7.0,
+    "resample_m": 5.0,
+    "min_edge_m": 12.0,
+    "smooth_iters": 2,
+    "clip_radius_m": 0,
+    "keep_largest_component": true,
+    "class_widths_m": {
+      "motorway": 16.0,
+      "ramp": 8.5,
+      "trunk": 15.0,
+      "primary": 12.0,
+      "secondary": 10.0,
+      "residential": 8.0,
+      "service": 6.0,
+      "default": 11.0
+    }
+  },
+  "loop": false,
+  "mirror_x": true,
+  "default_width_m": 14.0,
+  "width_overrides": [],
+  "scenery": {
+    "_doc": "Desert dressing. dry_only kills irrigated green (all dry chaparral/dirt); palms off. Physical WALLS replace the visual guardrail; gantries stay for freeway feel.",
+    "corridor_margin_m": 3.5,
+    "dry_only": true,
+    "palms": false,
+    "streetlights": false,
+    "tree_step_m": 40.0,
+    "tree_cap": 3000,
+    "bush_spacing_m": 9.0,
+    "bush_density": 0.35,
+    "light_spacing_m": 90.0,
+    "freeway_furniture": {
+      "guardrails": false,
+      "gantries": true,
+      "barrier_spacing_m": 8.0,
+      "gantry_spacing_m": 380.0,
+      "lightpole_spacing_m": 70.0
+    },
+    "walls": {
+      "_doc": "Physical concrete barrier along both edges of every freeway-class edge (build_network_mesh -> 1WALL_*). height_m tall enough to stop a launched car; offset_m past the shoulder outer lip.",
+      "enabled": true,
+      "height_m": 1.1,
+      "offset_m": 3.2
+    },
+    "viaduct": {
+      "_doc": "Real 3DEP carries the terrain grades; OSM bridge LAYER tags carry the flyovers. So the synthetic dip-bridge is OFF (max_lift_m 0) - only layer_height_m raises OSM-tagged flyover decks so interchanges grade-separate.",
+      "base_lift_m": 0.0,
+      "max_lift_m": 0.0,
+      "smooth_win": 60,
+      "taper_frac": 0.2,
+      "layer_height_m": 5.5
+    },
+    "terrain": {
+      "_doc": "Override the DEM bbox to reach WEST past I-5 over Mission Bay to the coast, so the bay + ocean have ground under them.",
+      "bbox_swne": [
+        32.7,
+        -117.275,
+        32.865,
+        -117.125
+      ]
+    },
+    "ocean": {
+      "_doc": "Pacific to the true WEST: carve terrain west of lon_from below sea level + a flat sea-level plane out to lon_to.",
+      "enabled": true,
+      "sea_level_m": 0.0,
+      "lon_from": -117.255,
+      "lon_to": -117.3,
+      "lat_pad_m": 3000
+    },
+    "water_bodies": {
+      "_doc": "Mission Bay - the big water body just WEST of I-5 between I-8 and SR-52.",
+      "enabled": true,
+      "bodies": [
+        {
+          "name": "Mission Bay",
+          "center_lon": -117.228,
+          "center_lat": 32.783,
+          "radius_m": 1500
+        }
+      ]
+    },
+    "buildings": {
+      "enabled": false
+    }
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 180.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "freeroam",
+      "ai": "ai/freeroam",
+      "uses_connectors": [],
+      "_doc": "Single freeroam layout over the whole freeway network. AC_START on I-8 near the SR-163 stack. Drive the loop either direction; every ramp is open."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "noon",
+      "golden_hour",
+      "morning"
+    ],
+    "grassfx": false
+  }
+}

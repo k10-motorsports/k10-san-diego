@@ -78,16 +78,44 @@ k10-san-diego/
 │   │   ├── network.cache.json        # cached OSM drivable network (so re-derivation needs no live Overpass)
 │   │   └── bridges.cache.json        # cached OSM bridge spans
 │   └── source/                   # notes / screenshots
+├── project_freeway/              # freeway LAYOUT, single-ribbon centerline build (the older approach)
+├── project_freeway_net/          # freeway as the REAL NETWORK (all ramps) — network-pipeline project
+│   ├── track.config.json         # osm-network source: I-5/CA-52/CA-163/I-8 box, downtown to 32.705
+│   ├── source/realworld_capture.json  # texture_overrides: CC0 cement on 1ROAD/HWYSTRUCT/1WALL etc.
+│   └── data/                     # network.geojson + elevation + heightfield committed (offline rebuild);
+│                                 # track.obj/environment.obj are regenerated, git-ignored
 └── scripts/
     ├── config.py
-    ├── gps/          # centerline, street_route (real-network routing), road_route, overpass, kml
+    ├── gps/          # centerline, street_route (real-network routing), network+classify (graph), overpass, kml
     ├── trace/osm.py
-    ├── elevation/    # heightfield, usgs_3dep (real elevation sampling)
-    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies
+    ├── elevation/    # heightfield, usgs_3dep, network_elev (network 3DEP), synthetic_field
+    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies,
+    │                 # build_network_mesh (+viaducts/piers/walls), audit_mesh (the gate), grade_track
+    ├── environment/  # build_network_env (network scatter/furniture/water), buildings
+    ├── lighting/     # csp_config.resolve_true_north (slim port — full solar module stays in prodrive)
     ├── blender/      # build_loop_blend.py — imports the loop into Blender
     └── ac/           # kn5 pipeline: build_kn5 (prep) -> export_kn5_addon -> verify_kn5 -> track_folder
+                      # + build_network_kn5 (OBJ->blend for network projects), flythrough_network
 vendor/io_import_accsv   # the jwl-7 AC Blender Tools addon, vendored (kn5 exporter; Blender 4.2 only)
 ```
+
+## The freeway NETWORK pipeline (ported from prodrive-ac-builder, 2026-07-20)
+
+The Lake Murray loop stays Blender-first (above). The **freeway** is different: it's a branching graph
+(both carriageways + every on/off ramp and interchange connector), so it uses the deterministic network
+pipeline ported from prodrive-ac-builder — `project_freeway_net/` is its project:
+
+```bash
+./scripts/build_network.sh project_freeway_net          # full run (Overpass -> ... -> zip)
+./scripts/build_network.sh project_freeway_net mesh     # offline resume from cached data (usual case)
+```
+Stages: `net` (Overpass motorway+motorway_link, mainlines ref-filtered so I-805 stays out) → `classify`
+→ `elev` (3DEP) → `mesh` (build_network_mesh: ribbons per edge, OSM-layer flyover decks, viaduct piers
+with clear-span suppression, concrete walls, median fill) → **audit gate** (`audit_mesh`: A supports-in-
+road and B terrain-poke must be 0 or the build stops) → `env` → `blend`/`kn5`/`pack` (Blender 4.2).
+Piers are suppressed using the audit's own band (y_top−45 … y_top−1.5) with a ±3-cell scan — the fix
+that cleared 6 downtown piers standing in I-5. `project_freeway/` (single-ribbon layout) is kept as-is
+until the network build replaces it as the shipped layout.
 
 ## kn5 export (installable AC track)
 

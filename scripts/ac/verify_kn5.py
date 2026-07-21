@@ -141,6 +141,22 @@ def verify(project_dir: str | Path) -> list[str]:
                 fails.append(f"SPAWN off-road '{nm}': {d:.1f} m from road, dY {y - nr[1]:+.1f} m — will drop")
     elif spawns:
         fails.append("no 1ROAD mesh found to validate spawns against")
+
+    # 5. per-layout spawn kn5s (multi-layout network): the main kn5 carries no spawns; each
+    #    build/<slug>__<layout>.kn5 holds THIS layout's AC_START/AC_PIT. Verify they sit on the shared
+    #    main kn5's roads (same drop check as the baked-in case).
+    if road:
+        for spk in sorted(kn5.parent.glob(f"{slug}__*.kn5")):
+            snodes, _sm = _parse(spk)
+            sspawns = [(nm, p) for nm, p in snodes if nm == "AC_START_0" or nm.startswith("AC_PIT")]
+            if not sspawns:
+                fails.append(f"spawn kn5 '{spk.name}' has no AC_START/AC_PIT dummies")
+                continue
+            for nm, (x, y, z) in sspawns:
+                nr = min(road, key=lambda v: (v[0] - x) ** 2 + (v[2] - z) ** 2)
+                d = math.hypot(nr[0] - x, nr[2] - z)
+                if d > PIT_ROAD_MAX_M or abs(y - nr[1]) > PIT_DY_MAX_M:
+                    fails.append(f"SPAWN off-road '{spk.name}:{nm}': {d:.1f} m from road, dY {y - nr[1]:+.1f} m")
     return fails
 
 

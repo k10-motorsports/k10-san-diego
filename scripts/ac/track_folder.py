@@ -46,6 +46,10 @@ def surfaces_ini() -> str:
         # off-track scrub. Keeps the green neighbourhood ground physical so you don't fall through it.
         ("LAWN",   dict(FRICTION=0.65, DAMPING=0.09, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0),
                    "grass.wav", 1.0),
+        # WALL = the physical freeway barrier (1WALL_* meshes). A vertical collision surface, not driven
+        # on, so it never counts as valid track — it just bounces the car back onto the road.
+        ("WALL",   dict(FRICTION=0.30, DAMPING=0, IS_VALID_TRACK=0, DIRT_ADDITIVE=0, IS_PITLANE=0),
+                   "", 0),
     ]
     out = []
     for i, (key, p, wav, pitch) in enumerate(blocks):
@@ -69,8 +73,12 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
         f"({city}, {country}).")
     tags = ["freeroam", "cruise", "street", "open-world", "real-roads"] if freeroam else \
         ["street", "loop", "fictional", "real-roads"]
+    # per-layout label: use the layout's configured `name` (e.g. "San Diego Freeway Loop") so each config
+    # in the in-game dropdown reads as its actual track, not the raw id.
+    lo_meta = next((lo for lo in (cfg.raw.get("layouts", []) or []) if lo.get("id") == layout), {})
+    lo_label = lo_meta.get("name") or layout
     return {
-        "name": f"{cfg.name}" + ("" if layout in ("full", "freeroam") else f" — {layout}"),
+        "name": f"{cfg.name}" + ("" if layout in ("full", "freeroam") else f" — {lo_label}"),
         "description": desc,
         "tags": tags,
         "geotags": [f"{cfg.lat}", f"{cfg.lon}"],
@@ -81,8 +89,11 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
     }
 
 
-def models_ini(kn5_name: str) -> str:
-    return f"[MODEL_0]\nFILE={kn5_name}\nPOSITION=0,0,0\nROTATION=0,0,0\n"
+def models_ini(kn5_name: str, spawn_kn5: str | None = None) -> str:
+    s = f"[MODEL_0]\nFILE={kn5_name}\nPOSITION=0,0,0\nROTATION=0,0,0\n"
+    if spawn_kn5:   # per-layout spawn kn5 (AC_START/AC_PIT dummies for THIS track), loaded alongside main
+        s += f"\n[MODEL_1]\nFILE={spawn_kn5}\nPOSITION=0,0,0\nROTATION=0,0,0\n"
+    return s
 
 
 # --- minimap / images ----------------------------------------------------------
@@ -124,9 +135,16 @@ def _network_edges_xz(project_dir: Path):
     m_lat = 111132.954 - 559.822 * math.cos(2 * phi) + 1.175 * math.cos(4 * phi)
     m_lon = 111412.84 * math.cos(phi) - 93.5 * math.cos(3 * phi) + 0.118 * math.cos(5 * phi)
     fc = json.loads(netp.read_text())
+    # SUN FIX: the model is yawed by true_north_rotation_deg at export (build_kn5). Yaw the minimap
+    # coords by the SAME angle so map.png + map.ini offsets stay aligned with the in-game world.
+    tn = math.radians(float(loc.get("true_north_rotation_deg", 0.0)))
+    ct, st = math.cos(tn), math.sin(tn)
     edges, total = [], 0.0
     for f in fc["features"]:
-        e = [(sx * (lon - lon0) * m_lon, (lat - lat0) * m_lat) for lon, lat in f["geometry"]["coordinates"]]
+        e = []
+        for lon, lat in f["geometry"]["coordinates"]:
+            x, z = sx * (lon - lon0) * m_lon, (lat - lat0) * m_lat
+            e.append((x * ct - z * st, x * st + z * ct))
         edges.append(e)
         total += float(f["properties"].get("length_m") or 0.0)
     return edges, round(total, 1)
@@ -208,12 +226,24 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     preview_src = render_svg.read_text(encoding="utf-8") if render_svg.exists() else \
         _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True, multi=multi)
 
+    import shutil
     layouts = [lo["id"] for lo in cfg.layouts]
     for layout in layouts:
-        (out / ("models_%s.ini" % layout)).write_text(models_ini(kn5_name), encoding="utf-8")
+        # Per-track spawn: if this layout has its own dummies_<layout>.json + a built spawn kn5, load it
+        # as MODEL_1 alongside the shared main kn5, and count pits from THIS layout's dummies.
+        sp_dummies_path = project_dir / "data" / f"dummies_{layout}.json"
+        spawn_kn5 = f"{cfg.slug}__{layout}.kn5"
+        spawn_kn5_src = project_dir / "build" / spawn_kn5
+        has_spawn = sp_dummies_path.exists() and spawn_kn5_src.exists()
+        layout_dummies = json.loads(sp_dummies_path.read_text(encoding="utf-8")) if sp_dummies_path.exists() else dummies
+        layout_pits = sum(1 for k in layout_dummies if k.startswith("AC_PIT_")) or n_pits or 1
+        (out / ("models_%s.ini" % layout)).write_text(
+            models_ini(kn5_name, spawn_kn5 if has_spawn else None), encoding="utf-8")
+        if has_spawn:
+            shutil.copyfile(spawn_kn5_src, out / spawn_kn5)
         uid = out / "ui" / layout
         uid.mkdir(parents=True, exist_ok=True)
-        (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, n_pits), indent=2),
+        (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, layout_pits), indent=2),
                                            encoding="utf-8")
         _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True, multi=multi), uid / "outline.png", params["WIDTH"])
         _rasterize(preview_src, uid / "preview.png", 600)

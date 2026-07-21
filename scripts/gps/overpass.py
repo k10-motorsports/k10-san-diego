@@ -102,3 +102,44 @@ def fetch_drivable_ways(bbox: tuple[float, float, float, float], *, timeout: int
             out.append({"id": el.get("id"), "name": el.get("tags", {}).get("name"),
                         "highway": el.get("tags", {}).get("highway"), "geom": geom})
     return out
+def fetch_highways_by_class(
+    bbox: tuple[float, float, float, float],
+    classes: list[str],
+    *,
+    refs: list[str] | None = None,
+    timeout: int = 180,
+) -> list[dict]:
+    """Every OSM way whose ``highway`` tag is one of ``classes`` inside bbox (s,w,n,e), with geometry
+    and the tags a freeway network cares about. This is how the ``osm-network`` source pulls a whole
+    freeway box (motorway + motorway_link) straight from OSM: mainlines (both carriageways) AND every
+    ramp / interchange connector, since on/off ramps and cloverleaf N<->S connectors are all
+    ``motorway_link`` ways.
+
+    ``refs`` (e.g. ``["I 5", "I 8", "CA 52", "CA 163"]``) restricts the MAINLINE ways (non-``*_link``)
+    to those exact OSM ``ref`` tags, so a parallel freeway threading the same box (e.g. I-805) is
+    excluded without touching the ramps — link/ramp ways are kept regardless (their orphans are pruned
+    later by the largest-connected-component filter). Returns
+    ``[{id, name, ref, highway, layer, bridge, geom:[(lon,lat)]}]``."""
+    s, w, n, e = bbox
+    rx = "|".join(classes)
+    query = (f'[out:json][timeout:{timeout}];\n'
+             f'way["highway"~"^({rx})$"]({s},{w},{n},{e});\nout geom;')
+    payload = _post(query)
+    refset = set(refs) if refs else None
+    out: list[dict] = []
+    for el in payload.get("elements", []):
+        if el.get("type") != "way":
+            continue
+        geom = [(g["lon"], g["lat"]) for g in el.get("geometry") or []]
+        if len(geom) < 2:
+            continue
+        tags = el.get("tags", {})
+        hw = str(tags.get("highway", ""))
+        if refset is not None and not hw.endswith("_link") and tags.get("ref") not in refset:
+            continue   # a mainline carriageway that isn't one of the requested freeways -> skip
+        out.append({"id": el.get("id"), "name": tags.get("name"), "ref": tags.get("ref"),
+                    "highway": tags.get("highway"), "layer": tags.get("layer"),
+                    "bridge": tags.get("bridge"), "geom": geom})
+    return out
+
+

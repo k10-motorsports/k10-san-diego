@@ -1,0 +1,29 @@
+{
+ "texture_overrides": [
+  {
+   "material": "1ROAD",
+   "diffuse": "source/textures/concrete_diffuse.jpg",
+   "normal": "source/textures/concrete_normal.jpg"
+  },
+  {
+   "material": "1RUNOFF",
+   "diffuse": "source/textures/concrete_diffuse.jpg",
+   "normal": "source/textures/concrete_normal.jpg"
+  },
+  {
+   "material": "HWYSTRUCT",
+   "diffuse": "source/textures/concrete_diffuse.jpg",
+   "normal": "source/textures/concrete_normal.jpg"
+  },
+  {
+   "material": "1WALL",
+   "diffuse": "source/textures/concrete_diffuse.jpg",
+   "normal": "source/textures/concrete_normal.jpg"
+  },
+  {
+   "material": "MARKINGS",
+   "diffuse": "source/textures/line_white.png"
+  }
+ ],
+ "_doc": "Per-project texture overrides (pbr.load_overrides). Cement-style PROCEDURAL CC0 textures for the freeway deck/structures/walls + solid-white line texture so MARKINGS never exports black (texture-less kn5 materials render black in-engine)."
+}

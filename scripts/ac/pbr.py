@@ -45,6 +45,10 @@ TEXTURES = {
     "RFMETAL": ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.60, (0.55, 0.57, 0.60, 1), 0.15, False),  # corrugated-metal roof (on metal warehouses)
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
     "GUARDRAIL": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),  # swept freeway W-beam guardrail (metal)
+    # 1WALL_GUARD BEFORE 1WALL: build_kn5 renames GUARDRAIL -> 1WALL_guard before materials bind, and
+    # prefix order = match priority — without the sub-prefix first, the metal guardrail would bind concrete.
+    "1WALL_GUARD": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),
+    "1WALL":   ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.85, (0.70, 0.69, 0.66, 1), 0.0, False),  # physical concrete freeway barrier (network pipeline, collidable)
     "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
