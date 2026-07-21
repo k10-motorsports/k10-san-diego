@@ -17,9 +17,13 @@ TEXTURES = {
     "1ROAD":   ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.10, 0.10, 0.11, 1), 0.0, False),  # cracked/alligator asphalt (LA Canyons lac_tarmac_cracked)
     "1RUNOFF": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.85, (0.16, 0.15, 0.14, 1), 0.0, False),
     "CALIB":   (None, None, 0.4, (1.0, 0.05, 0.6, 1), 0.9, False),  # bright emissive magenta — temp orientation poles
+    # 1KERB_SIDEWALK BEFORE 1KERB: prefix order = match priority. The Lake Murray street curb+sidewalk
+    # binds CONCRETE (grey), not the red racing kerb, and MUST carry a diffuse — a textureless kn5
+    # material renders BLACK in-engine (the "curbs are black" bug). See ac-textureless-materials-render-black.
+    "1KERB_SIDEWALK": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.75, (0.66, 0.66, 0.64, 1), 0.0, False),
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
-    "CURB":    (None, None, 0.70, (0.64, 0.64, 0.66, 1), 0.0, False),   # concrete street curb (visual)
-    "SIDEWALK": (None, None, 0.75, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete sidewalk slab
+    "CURB":    ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.70, (0.64, 0.64, 0.66, 1), 0.0, False),   # concrete street curb (fallback if a mesh keeps this name)
+    "SIDEWALK": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.75, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete sidewalk slab
     # Lines carry a SOLID-COLOUR TEXTURE, not a flat material colour: a texture-less kn5 material renders
     # BLACK in-engine (the "lines end up black" bug) — texture presence is what keeps them white/yellow.
     "MARKINGS": ("line_white.png", None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines (shape = geometry)
@@ -44,7 +48,13 @@ TEXTURES = {
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
     "RFMETAL": ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.60, (0.55, 0.57, 0.60, 1), 0.15, False),  # corrugated-metal roof (on metal warehouses)
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
-    "GUARDRAIL": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),  # swept freeway W-beam guardrail (metal)
+    # guardrail_diffuse/normal were removed in the CC0 pass (mined) -> bind the CC0 cement tile so the rail
+    # renders as a low grey concrete barrier instead of BLACK (textureless kn5 material = black in-engine).
+    "GUARDRAIL": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.55, (0.74, 0.75, 0.77, 1), 0.10, False),  # I-8 bridge rail
+    # 1WALL_GUARD BEFORE 1WALL: build_kn5 renames GUARDRAIL -> 1WALL_guard before materials bind, and
+    # prefix order = match priority — without the sub-prefix first it would fall through to the 1WALL tile.
+    "1WALL_GUARD": ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.55, (0.74, 0.75, 0.77, 1), 0.10, False),
+    "1WALL":   ("concrete_diffuse.jpg", "concrete_normal.jpg", 0.85, (0.70, 0.69, 0.66, 1), 0.0, False),  # physical concrete freeway barrier (network pipeline, collidable)
     "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)

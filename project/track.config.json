@@ -1,7 +1,7 @@
 {
   "name": "K10 - San Diego",
   "slug": "san_diego_lake_murray",
-  "version": "0.1.0",
+  "version": "0.15.0",
   "author": "k10-san-diego",
   "year": 2026,
   "_about": "A single drivable LOOP around Lake Murray (Kevin's childhood neighborhood). This repo is the standalone, Blender-first home for the track: the loop is mapped from the REAL roads (OpenStreetMap) at REAL elevation (USGS 3DEP), imported into Blender, and shaped there interactively (Kevin designs, Claude operates) BEFORE any kn5 export. Start point = just the 5-road main loop; everything else is added deliberately, in Blender.",
@@ -31,8 +31,36 @@
       "Lake Murray Boulevard"
     ],
     "stitch": "network",
-    "connectors": {},
-    "connectors_kml": []
+    "connectors": {
+      "del_cerro_blvd": [
+        "Del Cerro Boulevard"
+      ],
+      "del_cerro_ave": [
+        "Del Cerro Avenue"
+      ],
+      "airoso": [
+        "Airoso Avenue"
+      ],
+      "adelante": [
+        "Adelante Avenue"
+      ],
+      "colorado": [
+        "Colorado Avenue"
+      ],
+      "connecticut": [
+        "Connecticut Avenue"
+      ],
+      "wisconsin": [
+        "Wisconsin Avenue"
+      ]
+    },
+    "connectors_kml": [],
+    "connector_width_m": 10.0,
+    "split_carriageways": [
+      "Navajo Road",
+      "College Avenue"
+    ],
+    "split_width_m": 9.0
   },
   "loop": true,
   "mirror_x": false,
@@ -50,13 +78,7 @@
       "id": "full",
       "ai": "ai/full",
       "uses_connectors": [],
-      "_doc": "The Lake Murray main loop. Single layout."
-    },
-    {
-      "id": "freeway",
-      "ai": "ai/freeway",
-      "uses_connectors": [],
-      "_doc": "I-5 -> CA-52 -> CA-163 -> I-8 freeway loop, re-routed clean (ref-weighted, one carriageway). Separate kn5 placed by models_freeway.ini offset."
+      "_doc": "K10 - San Diego: the Lake Murray loop (with the Del Cerro sub-loop + per-direction carriageways) AND the I-5/CA-52/CA-163/I-8 freeway network, merged into ONE kn5. Freeway sits ~12 km west at its real position."
     }
   ],
   "lighting": {
@@ -87,5 +109,6 @@
     "scatter_scrub": true,
     "tree_pct": 38,
     "scrub_pct": 24
-  }
+  },
+  "ui_description": "K10 - San Diego: a real-world Assetto Corsa track built from OpenStreetMap + USGS 3DEP. Drive the 13.5 km Lake Murray loop around the reservoir (Kevin's childhood neighborhood) \u2014 now with the Del Cerro sub-loop and true per-direction elevations on Navajo & College \u2014 plus the full San Diego central freeway network (I-5 / CA-52 / CA-163 / I-8, every ramp, on real elevated structure) in one map."
 }

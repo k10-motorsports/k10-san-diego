@@ -23,6 +23,10 @@ import bpy  # provided by Blender
 AC_NAME = {
     "ROAD": "1ROAD_road",
     "KERB": "1KERB_kerb",
+    # The Lake Murray street curb+sidewalk ships as the working mesh "CURB". Remap it to a 1KERB_ physical
+    # surface so (a) it's collidable — the car can't fall through the road-edge/grass gap it bridges — and
+    # (b) it gets the face-up flip below. Without this it stayed "CURB": non-physical AND textureless=black.
+    "CURB": "1KERB_sidewalk",
     "TERRAIN": "1GRASS",
     "GUARDRAIL": "1WALL_guard",
 }
@@ -96,6 +100,61 @@ def planar_uv(me):
         uv.data[loop.index].uv = (co.x / UV_TILE, co.y / UV_TILE)
 
 
+# freeway groups whose winding must not matter: after the loop's local->Blender reflection their faces
+# would point inward, so double-side them (append reversed faces) — a barrier/structure must render AND
+# collide from both sides. Drivable freeway surfaces are handled by the face-up flip pass instead.
+DOUBLE_SIDE = ("1WALL", "HWYSTRUCT")
+
+
+def _add_obj_meshes(obj_path):
+    """Import a merged OBJ (the freeway, already translated to the loop frame) using the SAME local->Blender
+    remap as build_loop_blend.make_mesh — (x,y,z)->(x,z,y) with reversed winding — so it lands in the loop's
+    frame and the existing rename/flip/material pass handles it. Keeps AC group names + authored UVs."""
+    verts = []; uvs = []; groups = []; cur = None
+    for ln in obj_path.read_text().splitlines():
+        s = ln.split()
+        if not s:
+            continue
+        if s[0] == "v":
+            verts.append((float(s[1]), float(s[2]), float(s[3])))
+        elif s[0] == "vt":
+            uvs.append((float(s[1]), float(s[2])))
+        elif s[0] == "o":
+            cur = (ln[2:].strip(), []); groups.append(cur)
+        elif s[0] == "f" and cur is not None:
+            face = []
+            for tok in s[1:]:
+                p = tok.split("/")
+                face.append((int(p[0]) - 1, int(p[1]) - 1 if len(p) > 1 and p[1] else None))
+            cur[1].append(face)
+    n = 0
+    for name, faces in groups:
+        if not faces:
+            continue
+        has_uv = all(t is not None for fc in faces for _, t in fc)
+        idx = {}; bverts = []; buvs = []; bfaces = []
+        for fc in faces:
+            bf = []
+            for vi, ti in fc:
+                if vi not in idx:
+                    idx[vi] = len(bverts)
+                    x, y, z = verts[vi]; bverts.append((x, z, y))     # local (E,up,N) -> Blender (E,N,up)
+                    buvs.append(uvs[ti] if (has_uv and ti is not None) else (0.0, 0.0))
+                bf.append(idx[vi])
+            bfaces.append(tuple(reversed(bf)))                        # reverse winding (cancels the reflection)
+        if name.upper().startswith(DOUBLE_SIDE):
+            bfaces += [tuple(reversed(f)) for f in bfaces]            # render + collide from both sides
+        me = bpy.data.meshes.new(name); me.from_pydata(bverts, [], bfaces); me.validate(); me.update()
+        if has_uv:
+            uvl = me.uv_layers.new(name="UVMap")
+            for loop in me.loops:
+                uvl.data[loop.index].uv = buvs[loop.vertex_index]
+        bpy.context.scene.collection.objects.link(bpy.data.objects.new(name, me))
+        n += 1
+    print(f"[build_kn5] merged {n} groups ({len(verts)} verts) from {obj_path.name}")
+    return n
+
+
 def main():
     proj = _project_dir(sys.argv)
     repo = proj.parent
@@ -107,6 +166,11 @@ def main():
 
     # 1. open the working scene
     bpy.ops.wm.open_mainfile(filepath=str(proj / "loop.blend"))
+
+    # 1b. merge the freeway network (translated to the loop frame by scripts.ac.merge_freeway) into ONE kn5.
+    #     Present only when the combined K10 - San Diego build has run merge_freeway; skipped otherwise.
+    for mobj in sorted(list((proj / "data").glob("track_*.obj")) + list((proj / "data").glob("env_*.obj"))):
+        _add_obj_meshes(mobj)
 
     # 2. drop non-exported helpers (markers/cameras), rename meshes to AC convention
     for ob in list(bpy.data.objects):
@@ -121,7 +185,8 @@ def main():
     import bmesh
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         me = ob.data
-        if not ob.name.upper().startswith(("PALM", "TREE", "SCRUB")):   # props carry authored UVs — don't flatten
+        # props / billboards carry authored UVs — don't flatten (freeway BUSHES/CHAINLINK too)
+        if not ob.name.upper().startswith(("PALM", "TREE", "SCRUB", "BUSHES", "CHAINLINK", "ROADTEXT")):
             planar_uv(me)
         bm = bmesh.new(); bm.from_mesh(me)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)

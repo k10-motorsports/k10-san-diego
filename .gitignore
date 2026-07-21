@@ -10,3 +10,9 @@ project/build/
 project/blender/
 project_freeway/build/
 project_freeway/blender/
+project_freeway_net/build/
+project_freeway_net/blender/
+project_freeway_net/data/*.obj
+project_freeway_net/data/*.mtl
+project_freeway_net/data/ground.local.json
+project_freeway_net/data/network_preview.svg

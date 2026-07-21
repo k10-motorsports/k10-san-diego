@@ -616,10 +616,38 @@ def main():
         passes=int(route.get("smooth_passes", 2)),
         sigma_y_pts=float(route.get("smooth_sigma_y_pts", 1.5)))
     i8 = _load_i8(proj)
-    local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
-    (data / "centerline.local.json").write_text(json.dumps(local))
     print(f"[blend] smoothed curves: max kink {smoothmod.max_kink_deg(raw_centerline):.1f} -> "
           f"{smoothmod.max_kink_deg(centerline):.1f} deg")
+
+    # --- extra lines: connector streets (the Del Cerro sub-loop) + any split carriageways, each carrying
+    #     its OWN real 3DEP elevation (data/connectors.local.json, from scripts.geometry.extra_lines). Swept
+    #     as ribbons and MERGED into the main ROAD/CURB/MARKINGS meshes so they share physics + materials.
+    #     Their points also feed the terrain conform/clamp/carve so the hill ground meets them (no float). ---
+    connectors = []
+    conn_path = data / "connectors.local.json"
+    if conn_path.exists():
+        conn_data = json.loads(conn_path.read_text())
+        for c in conn_data.get("connectors", []):
+            cpts = [tuple(p) for p in c["points_xyz_m"]]
+            if len(cpts) < 2:
+                continue
+            cpts = smoothmod.smooth_centerline(cpts, sigma_pts=1.5, passes=1, sigma_y_pts=1.0)
+            connectors.append((c["name"], cpts, list(c["widths_m"])))
+        print(f"[blend] {len(connectors)} connector line(s): " + ", ".join(n for n, _, _ in connectors))
+        # split carriageways: narrow the main loop where it rides a divided road to ONE carriageway, so the
+        # double-wide ribbon doesn't overlap the opposing carriageway added beside it (per-direction grade).
+        nm = conn_data.get("narrow_main")
+        if nm:
+            tw = float(nm["width_m"])
+            for i in nm["idx"]:
+                if 0 <= i < len(widths):
+                    widths[i] = min(widths[i], tw)
+            print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m)")
+
+    # persist the smoothed centerline + narrowed widths so build_kn5 (dummies) + minimap share this geometry
+    local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
+    local["widths_m"] = widths
+    (data / "centerline.local.json").write_text(json.dumps(local))
 
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
@@ -634,6 +662,26 @@ def main():
     for mk in marks.values():
         mk["vertices"] = [(x, y + 0.115, z) for (x, y, z) in mk["vertices"]]  # 1.5 cm above the road top
 
+    # merge each connector's ribbon + curb + markings into the main meshes (shared names -> shared physics)
+    def _append(dst, src):
+        off = len(dst["vertices"])
+        dst["vertices"] += src["vertices"]
+        if "uvs" in dst and "uvs" in src and len(src["uvs"]) == len(src["vertices"]):
+            dst["uvs"] += src["uvs"]
+        dst["tris"] += [(a + off, b + off, c + off) for (a, b, c) in src["tris"]]
+
+    for cname, cpts, cw in connectors:
+        crib = ribbon.road_ribbon(cpts, cw)
+        crib["vertices"] = [(x, y + 0.10, z) for (x, y, z) in crib["vertices"]]
+        _append(road, crib)
+        cker = ribbon.curb_sidewalk(cpts, cw, lift=0.10, curb_h=0.14, curb_face_w=0.08,
+                                    sidewalk_w=1.5, grade_w=1.2, grass_clearance=0.10)
+        _append(kerb, cker)
+        cmk = ribbon.lane_markings(cpts, cw, center_yellow=True)
+        for _k in ("white", "yellow"):
+            cmk[_k]["vertices"] = [(x, y + 0.115, z) for (x, y, z) in cmk[_k]["vertices"]]
+            _append(marks[_k], cmk[_k])
+
     # --- terrain: upsample the coarse 40 m DEM (finer facets), conform to the road with a small
     #     clearance so near-road ground sits just BELOW the road edge (no coarse facet pokes up through
     #     and buries the ribbon), then clamp to ±band so there are no fake mountains ---
@@ -641,9 +689,16 @@ def main():
     meta = json.loads((data / "heightfield.meta.json").read_text())
     grid, meta = ribbon.upsample_grid(grid, meta, 2)                      # 40 m -> 20 m facets
     grid_xyz = project_grid(grid, meta, lon0, lat0, elev0)
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.08)
-    band_clamp(grid_xyz, centerline, band)
+    # connectors climb the Del Cerro hill (~40 m above the loop) — the terrain MUST conform + clamp to them
+    # too, or the hill ground is clamped down to the loop grade and the connector ribbon floats over a void.
+    extra_roads = [(cpts, cw) for _n, cpts, cw in connectors]
+    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.08,
+                                   extra_roads=extra_roads)
+    all_road_pts = list(centerline) + [p for _n, cpts, _w in connectors for p in cpts]
+    band_clamp(grid_xyz, all_road_pts, band)
     carve_road_corridor(grid_xyz, centerline, widths, carve=0.2)   # guarantee no ground pokes through
+    for _n, cpts, cw in connectors:
+        carve_road_corridor(grid_xyz, cpts, cw, carve=0.2)
     cut_i8_trench(grid_xyz, i8)                                     # sink the I-8 corridor into a real cut (i8 loaded above)
     terrain = ribbon.grass_terrain(grid_xyz)
     guardrail = build_guardrails(centerline, widths, i8)           # rails where the loop bridges I-8

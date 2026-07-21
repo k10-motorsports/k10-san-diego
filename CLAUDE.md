@@ -78,16 +78,69 @@ k10-san-diego/
 │   │   ├── network.cache.json        # cached OSM drivable network (so re-derivation needs no live Overpass)
 │   │   └── bridges.cache.json        # cached OSM bridge spans
 │   └── source/                   # notes / screenshots
+├── project_freeway/              # freeway LAYOUT, single-ribbon centerline build (the older approach)
+├── project_freeway_net/          # freeway as the REAL NETWORK (all ramps) — network-pipeline project
+│   ├── track.config.json         # osm-network source: I-5/CA-52/CA-163/I-8 box, downtown to 32.705
+│   ├── source/realworld_capture.json  # texture_overrides: CC0 cement on 1ROAD/HWYSTRUCT/1WALL etc.
+│   └── data/                     # network.geojson + elevation + heightfield committed (offline rebuild);
+│                                 # track.obj/environment.obj are regenerated, git-ignored
 └── scripts/
     ├── config.py
-    ├── gps/          # centerline, street_route (real-network routing), road_route, overpass, kml
+    ├── gps/          # centerline, street_route (real-network routing), network+classify (graph), overpass, kml
     ├── trace/osm.py
-    ├── elevation/    # heightfield, usgs_3dep (real elevation sampling)
-    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies
+    ├── elevation/    # heightfield, usgs_3dep, network_elev (network 3DEP), synthetic_field
+    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies,
+    │                 # build_network_mesh (+viaducts/piers/walls), audit_mesh (the gate), grade_track
+    ├── environment/  # build_network_env (network scatter/furniture/water), buildings
+    ├── lighting/     # csp_config.resolve_true_north (slim port — full solar module stays in prodrive)
     ├── blender/      # build_loop_blend.py — imports the loop into Blender
     └── ac/           # kn5 pipeline: build_kn5 (prep) -> export_kn5_addon -> verify_kn5 -> track_folder
+                      # + build_network_kn5 (OBJ->blend for network projects), flythrough_network
 vendor/io_import_accsv   # the jwl-7 AC Blender Tools addon, vendored (kn5 exporter; Blender 4.2 only)
 ```
+
+## The freeway NETWORK pipeline (ported from prodrive-ac-builder, 2026-07-20)
+
+The Lake Murray loop stays Blender-first (above). The **freeway** is different: it's a branching graph
+(both carriageways + every on/off ramp and interchange connector), so it uses the deterministic network
+pipeline ported from prodrive-ac-builder — `project_freeway_net/` is its project:
+
+```bash
+./scripts/build_network.sh project_freeway_net          # full run (Overpass -> ... -> zip)
+./scripts/build_network.sh project_freeway_net mesh     # offline resume from cached data (usual case)
+```
+Stages: `net` (Overpass motorway+motorway_link, mainlines ref-filtered so I-805 stays out) → `classify`
+→ `elev` (3DEP) → `mesh` (build_network_mesh: ribbons per edge, OSM-layer flyover decks, viaduct piers
+with clear-span suppression, concrete walls, median fill) → **audit gate** (`audit_mesh`: A supports-in-
+road and B terrain-poke must be 0 or the build stops) → `env` → `blend`/`kn5`/`pack` (Blender 4.2).
+Piers are suppressed using the audit's own band (y_top−45 … y_top−1.5) with a ±3-cell scan — the fix
+that cleared 6 downtown piers standing in I-5. `project_freeway/` (single-ribbon layout) is the retired
+predecessor — the shipped track uses the network freeway, merged into the loop (below).
+
+## The ONE combined "K10 - San Diego" kn5 (loop + freeway, `scripts/build_combined.sh`)
+
+The shipped track is a SINGLE kn5 containing both the Lake Murray loop AND the freeway network, at their
+real relative position (~12 km apart — "connect them eventually"). Build it with one command:
+```bash
+scripts/build_combined.sh           # merge the current freeway build into the loop -> combined kn5 + zip
+scripts/build_combined.sh freeway   # rebuild the freeway (mesh+env, unmirrored) first, then merge
+```
+How the merge works — the loop stays Blender-first, the freeway is a build INPUT:
+- The freeway network MUST be built `mirror_x=false` (matching the loop's frame). `scripts/ac/merge_freeway.py`
+  translates its `track.obj` + `environment.obj` into the loop's local frame (origin delta + elevation-datum
+  delta), suffixing group names `_fw` (keeping the 1ROAD_/1GRASS_/1WALL_/HWYSTRUCT prefix).
+- The loop's `build_kn5.py` imports those OBJs with the SAME `(x,z,y)`-reflect remap `make_mesh` uses, so
+  they land in the loop frame and the existing rename/face-up-flip/PBR pass handles them. Walls + HWYSTRUCT
+  are double-sided (the reflection flips their winding; a barrier must collide from both sides).
+- One layout (`full`) = the whole thing. Ships as one zip via GitHub Releases.
+
+**Lake Murray extras** (both feed the loop via `scripts/geometry/extra_lines.py` → `connectors.local.json`):
+the **Del Cerro sub-loop** (Del Cerro Blvd/Ave, Airoso, Adelante, Colorado, Connecticut, Wisconsin —
+`route.connectors`) and **per-direction carriageways** on divided roads (`route.split_carriageways`,
+e.g. Navajo/College): the opposing carriageway is pulled from OSM, sampled at its OWN real 3DEP, and added
+beside the loop where the two are cleanly divided; the main loop is narrowed to one carriageway there. Each
+extra line carries real point-precise 3DEP (the sub-loop climbs the Del Cerro hill; College keeps its real
+~6 m per-direction split).
 
 ## kn5 export (installable AC track)
 
