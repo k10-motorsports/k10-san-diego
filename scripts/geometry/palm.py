@@ -68,13 +68,34 @@ def _add_fronds(cx, cz, ytop, h, yaw0, mesh):
                 T.append((a0, b1, b0)); T.append((a0, a1, b1))     # back (double-sided)
 
 
-def scatter(centerline, widths, terr, on_mask, *, spacing=28.0, offset=3.2,
+def _clear_of_road(ox, oz, road_cells, cell):
+    """True if (ox,oz) is outside every road corridor — road_cells maps a coarse grid cell to the widest
+    (cx,cz,half+margin) road disc near it; a palm inside any disc is standing in/beside the pavement."""
+    ci, cj = int(ox // cell), int(oz // cell)
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            for cx, cz, r in road_cells.get((ci + di, cj + dj), ()):
+                if (ox - cx) ** 2 + (oz - cz) ** 2 < r * r:
+                    return False
+    return True
+
+
+def scatter(centerline, widths, terr, on_mask, *, spacing=28.0, offset=5.5,
             hmin=10.0, hmax=13.5) -> tuple[dict, int]:
     """Drop a palm every ``spacing`` m of arc on BOTH verges of the masked stretch. ``terr(x,z)`` samples
     ground height; ``offset`` sits the palm this far beyond the road edge (on the parkway). ``on_mask[i]``
     selects which centreline vertices get palms. Returns ({'PALMTRUNK':..,'PALMFROND':..}, count)."""
     trunk = {"vertices": [], "tris": [], "uvs": []}
     frond = {"vertices": [], "tris": [], "uvs": []}
+    # spatial hash of the WHOLE road corridor (every station's half-width + a clear-zone margin) so a palm
+    # is rejected if it lands in the pavement of ANY station, not just its own — the drive-test clear zone.
+    CLEAR_MARGIN = 4.5
+    CELL = 40.0     # > widest road half + margin, so a palm inside any road disc is caught by a ±1-cell scan
+    road_cells: dict = {}
+    for k in range(len(centerline)):
+        cx, _cy, cz = centerline[k]
+        r = widths[k] / 2.0 + CLEAR_MARGIN
+        road_cells.setdefault((int(cx // CELL), int(cz // CELL)), []).append((cx, cz, r))
     acc = spacing
     count = 0
     for i in range(len(centerline) - 1):
@@ -91,6 +112,10 @@ def scatter(centerline, widths, terr, on_mask, *, spacing=28.0, offset=3.2,
         for side in (1, -1):
             ox = x + nx * side * (half + offset)
             oz = z + nz * side * (half + offset)
+            # REJECT palms that land in the pavement of ANY station (road width varies 11<->21 m, so a palm
+            # placed off a narrow vertex can sit inside the widened road nearby) — the drive-test clear zone.
+            if not _clear_of_road(ox, oz, road_cells, CELL):
+                continue
             h = hmin + (hmax - hmin) * ((i * 7) % 11) / 10.0
             yaw = i * 1.7 + (0.0 if side > 0 else math.pi)
             gy = terr(ox, oz)

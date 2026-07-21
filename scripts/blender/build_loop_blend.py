@@ -92,8 +92,10 @@ def carve_road_corridor(grid_xyz, centerline, widths, *, carve=0.2, iters=12):
                 tx, tz = x + px * o * hw, z + pz * o * hw
                 if th(tx, tz) > y - 0.005:
                     i0, j0, _, _ = cell(tx, tz); lim = y - carve
-                    for jj in (j0, j0 + 1):
-                        for ii in (i0, i0 + 1):
+                    # push a 4x4 stamp (not just the 2x2 cell) so a coarse grass facet spanning a wide road
+                    # can't crest UP through the pavement between two carved nodes (the wide start/finish seam)
+                    for jj in range(max(0, j0 - 1), min(ny, j0 + 3)):
+                        for ii in range(max(0, i0 - 1), min(nx, i0 + 3)):
                             g = grid_xyz[jj][ii]
                             if g[1] > lim:
                                 grid_xyz[jj][ii] = (g[0], lim, g[2]); changed = True
@@ -694,11 +696,11 @@ def main():
     # connectors climb the Del Cerro hill (~40 m above the loop) — the terrain MUST conform + clamp to them
     # too, or the hill ground is clamped down to the loop grade and the connector ribbon floats over a void.
     extra_roads = [(cpts, cw) for _n, cpts, cw in connectors]
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.08,
+    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=20.0, blend=16.0, clearance=0.15,
                                    extra_roads=extra_roads)
     all_road_pts = list(centerline) + [p for _n, cpts, _w in connectors for p in cpts]
     band_clamp(grid_xyz, all_road_pts, band)
-    carve_road_corridor(grid_xyz, centerline, widths, carve=0.2)   # guarantee no ground pokes through
+    carve_road_corridor(grid_xyz, centerline, widths, carve=0.3)   # guarantee no ground pokes through
     for _n, cpts, cw in connectors:
         carve_road_corridor(grid_xyz, cpts, cw, carve=0.2)
     cut_i8_trench(grid_xyz, i8)                                     # sink the I-8 corridor into a real cut (i8 loaded above)
