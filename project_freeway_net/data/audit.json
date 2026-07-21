@@ -1,5 +1,5 @@
 {
- "slug": "san_diego_freeway_loop",
+ "slug": "san_diego_freeway",
  "road_verts": 122955,
  "grass_verts": 402676,
  "piers": 1268,
@@ -11,9 +11,11 @@
  "D_wall_on_road": 523,
  "E_wall_floating": 3,
  "F_curb_not_flush": 0,
- "G_prop_floating": 6,
+ "G_prop_floating": 50850,
+ "H_grade_launch": 0,
  "worst_poke_m": 0.0,
  "worst_float_m": 3.55,
+ "worst_grade_pct": 6.5,
  "C_by_kind": {
   "ramp": 5,
   "mainline": 2
@@ -23,47 +25,48 @@
   "poke": [],
   "crossings": [
    [
-    -3718.3,
+    3718.3,
     6011.5,
     39,
     "mainline"
    ],
    [
-    -3718.5,
+    3718.5,
     6006.5,
     38,
     "mainline"
    ],
    [
-    2956.4,
+    -2956.4,
     589.9,
     37,
     "ramp"
    ],
    [
-    3129.1,
+    -3129.1,
     531.3,
     34,
     "ramp"
    ],
    [
-    2956.4,
+    -2956.4,
     593.3,
     39,
     "ramp"
    ],
    [
-    3974.0,
+    -3974.0,
     6228.4,
     33,
     "ramp"
    ],
    [
-    -1776.0,
+    1776.0,
     -3929.4,
     55,
     "ramp"
    ]
-  ]
+  ],
+  "grade": []
  }
 }

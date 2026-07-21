@@ -34,6 +34,9 @@ CROSS_R = 6.0
 CROSS_ANGLE_DEG = 32.0
 CROSS_DY = 2.2
 LAYER_H = 5.5
+GRADE_WIN_M = 15.0      # window over which sustained deck slope is measured (a launch needs sustained steepness)
+GRADE_LAUNCH = 0.12    # >12% sustained grade on a freeway deck = a launch ramp (undrivable). Real freeway
+#                        grades cap ~6%; ramps ~6.5%. This gates ramp/mainline drivability (check H).
 
 
 def _mpd(lat0):
@@ -169,6 +172,7 @@ def audit(project_dir: str | Path) -> dict:
 
     # --- C. junction crossings (per-edge topology, trimmed to match the build) ---
     cross = []
+    decks = []
     try:
         decks = _decks_trimmed(data)
         CELL = 12.0
@@ -204,6 +208,34 @@ def audit(project_dir: str | Path) -> dict:
                                     cross.append((round(x, 1), round(z, 1), round(math.degrees(da)), kind))
     except Exception as e:  # noqa: BLE001 — never let C crash the audit
         print(f"  (check C skipped: {e})")
+
+    # --- H. drivable grade (launch check): sustained deck slope over a GRADE_WIN_M window on every freeway
+    #    edge. Ramps and mainlines must stay under GRADE_LAUNCH or the car launches. Measured on the SAME
+    #    built deck pts as C (real 3DEP + layer-lift + grade-cap + ramp-trim) — this is exactly what you
+    #    drive, so it directly gates "freeways accurate to real road elevations AND ramps drivable". ---
+    grade_hits = []
+    worst_grade = 0.0
+    for d in decks:
+        pts = d["pts"]
+        if len(pts) < 3:
+            continue
+        arc = [0.0]
+        for i in range(1, len(pts)):
+            arc.append(arc[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+        n = len(pts); j = 0; emax = 0.0; ex = ez = 0.0
+        for i in range(n):
+            if j < i:
+                j = i
+            while j < n and arc[j] - arc[i] < GRADE_WIN_M:
+                j += 1
+            if j < n and arc[j] - arc[i] >= GRADE_WIN_M * 0.8:
+                gr = abs(pts[j][1] - pts[i][1]) / (arc[j] - arc[i])
+                if gr > emax:
+                    emax = gr; ex, ez = pts[i][0], pts[i][2]
+        worst_grade = max(worst_grade, emax)
+        if emax > GRADE_LAUNCH:
+            grade_hits.append((round(ex, 1), round(ez, 1), round(emax * 100, 1),
+                               "ramp" if d["ramp"] else "mainline"))
 
     # === CRUFT PASS: walls + curbs ===================================================================
     # D. wall-on-road — a 1WALL vert sitting on/over a road that is NOT its own. A wall is placed ~offset
@@ -275,13 +307,16 @@ def audit(project_dir: str | Path) -> dict:
         "E_wall_floating": wall_float,
         "F_curb_not_flush": curb_bad,
         "G_prop_floating": prop_float,
+        "H_grade_launch": len(grade_hits),
         "worst_poke_m": round(max((h[2] for h in poke_hits), default=0.0), 2),
         "worst_float_m": round(worst_float, 2),
+        "worst_grade_pct": round(worst_grade * 100, 1),
         "C_by_kind": {"ramp": sum(1 for c in cross if c[3] == "ramp"),
                       "mainline": sum(1 for c in cross if c[3] == "mainline")},
         "samples": {"supports": support_hits[:8],
                     "poke": sorted(poke_hits, key=lambda h: -h[2])[:8],
-                    "crossings": cross[:10]},
+                    "crossings": cross[:10],
+                    "grade": sorted(grade_hits, key=lambda h: -h[2])[:10]},
     }
     (data / "audit.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(f"AUDIT {slug}   (roads {len(g['1ROAD'])}v, grass {len(g['1GRASS'])}v, walls {len(g['1WALL'])}v, piers {len(piers)})")
@@ -292,7 +327,8 @@ def audit(project_dir: str | Path) -> dict:
     print(f"  E. walls floating over ground  : {wall_float}  (worst +{report['worst_float_m']} m)")
     print(f"  F. curbs not flush             : {curb_bad}  (of {len(g['KERB'])} curb verts)")
     print(f"  G. plants floating over ground : {'(env not built)' if prop_float is None else prop_float}")
-    total = len(support_hits) + len(poke_hits) + len(cross) + wall_on_road + wall_float + curb_bad + (prop_float or 0)
+    print(f"  H. freeway launch grades       : {len(grade_hits)}  (worst {report['worst_grade_pct']}% over {int(GRADE_WIN_M)} m)")
+    total = len(support_hits) + len(poke_hits) + len(cross) + wall_on_road + wall_float + curb_bad + (prop_float or 0) + len(grade_hits)
     print(f"  => {'CLEAN' if total == 0 else str(total) + ' issues'}")
     return report
 

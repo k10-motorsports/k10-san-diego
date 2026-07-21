@@ -31,8 +31,31 @@
       "Lake Murray Boulevard"
     ],
     "stitch": "network",
-    "connectors": {},
-    "connectors_kml": []
+    "connectors": {
+      "del_cerro_blvd": [
+        "Del Cerro Boulevard"
+      ],
+      "del_cerro_ave": [
+        "Del Cerro Avenue"
+      ],
+      "airoso": [
+        "Airoso Avenue"
+      ],
+      "adelante": [
+        "Adelante Avenue"
+      ],
+      "colorado": [
+        "Colorado Avenue"
+      ],
+      "connecticut": [
+        "Connecticut Avenue"
+      ],
+      "wisconsin": [
+        "Wisconsin Avenue"
+      ]
+    },
+    "connectors_kml": [],
+    "connector_width_m": 10.0
   },
   "loop": true,
   "mirror_x": false,
