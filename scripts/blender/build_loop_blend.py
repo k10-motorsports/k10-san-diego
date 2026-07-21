@@ -603,6 +603,14 @@ def main():
         raw_path.write_text(json.dumps(local))
     raw_centerline = [tuple(p) for p in local["points_xyz_m"]]
     widths = local["widths_m"]
+    # WRAP-AWARE width smooth: road_widths sampled the closure vertex a full 10 m off its neighbours
+    # (17 m vs the 27.5 m of the approaching intersection), so the ribbon narrowed abruptly at the
+    # start/finish and left a triangulation GAP there — a real hole (drive-test soft_top). Smoothing the
+    # widths as a CLOSED ring (the loop's first==last point) removes the seam spike so the ribbon closes.
+    if len(widths) > 25:
+        _w = widths; _n = len(_w); _K = 10
+        widths = [sum(_w[(i + d) % _n] for d in range(-_K, _K + 1)) / (2 * _K + 1) for i in range(_n)]
+        local["widths_m"] = widths
     lon0, lat0 = local["origin"]["lon"], local["origin"]["lat"]
     elev0 = local["origin"]["elev_m"]
 
