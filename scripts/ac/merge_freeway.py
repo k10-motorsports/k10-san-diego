@@ -18,6 +18,7 @@ are built (unmirrored) and before the loop's build_kn5:
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -104,10 +105,33 @@ def build(loop_dir: str | Path, fw_dir: str | Path) -> dict:
     if envp.exists():
         ev, eg = _transform_obj(envp, loop / "data" / "env_freeway.obj", dx, dy, dz, "fw", drop=DROP_ENV)
         out["env"] = (ev, eg)
+
+    # freeway SPAWN: translate the freeway build's own dummies into the loop frame + derive the start facing
+    # (from AC_START -> AC_TIME_0 gate) so build_spawn_kn5 can export the __freeway.kn5 spawn stub. This is
+    # what makes the freeway a selectable layout with its own start point in the one shared-geometry kn5.
+    fdp = fw / "data" / "dummies.json"
+    if fdp.exists():
+        fd = json.loads(fdp.read_text())
+        start = fd.get("AC_START_0")
+        tl, tr = fd.get("AC_TIME_0_L"), fd.get("AC_TIME_0_R")
+        if start and tl and tr:
+            mid = ((tl[0] + tr[0]) / 2, (tl[2] + tr[2]) / 2)
+            yaw = math.atan2(mid[0] - start[0], mid[1] - start[2])   # atan2(E, N), same as build_kn5
+        else:
+            yaw = 0.0
+        moved = {k: [round(v[0] + dx, 3), round(v[1] + dy, 3), round(v[2] + dz, 3)]
+                 for k, v in fd.items() if isinstance(v, (list, tuple)) and len(v) == 3}
+        moved["_facing_yaw"] = round(yaw, 6)
+        (loop / "data" / "dummies_freeway.json").write_text(json.dumps(moved, indent=1))
+        out["spawn"] = (len([k for k in moved if k != "_facing_yaw"]), yaw)
+        print(f"[merge_freeway] freeway spawn: {out['spawn'][0]} dummies, facing {math.degrees(yaw):.0f}° "
+              f"-> project/data/dummies_freeway.json")
     print(f"[merge_freeway] offset dx={dx:.0f} dz={dz:.0f} dy={dy:.1f} m "
           f"({(dx * dx + dz * dz) ** 0.5 / 1000:.1f} km from loop)")
-    for k, (v, g) in out.items():
-        print(f"[merge_freeway] {k}: {v} verts, {g} groups -> project/data/{k}_freeway.obj")
+    for k in ("track", "env"):
+        if k in out:
+            v, g = out[k]
+            print(f"[merge_freeway] {k}: {v} verts, {g} groups -> project/data/{k}_freeway.obj")
     return out
 
 

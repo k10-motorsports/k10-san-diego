@@ -227,17 +227,13 @@ def main():
     # start facing = travel direction pts[0]->pts[1], as a yaw about Blender Z(up)
     tx, ty = cl[1][0] - cl[0][0], cl[1][2] - cl[0][2]          # Blender (E, N)
     start_yaw = math.atan2(tx, ty)
-    FACING = ("AC_START", "AC_PIT", "AC_HOTLAP")
-    dummies_out = {}
-    for name, (x, y, z) in placed.items():
-        e = bpy.data.objects.new(name, None)
-        e.empty_display_type = "ARROWS"; e.empty_display_size = 4.0
-        e.location = (x, z, y)                                  # local (E,up,N) -> Blender (E,N,up)
-        if any(name.startswith(p) for p in FACING):
-            e.rotation_euler = (0.0, 0.0, start_yaw)
-        bpy.context.scene.collection.objects.link(e)
-        dummies_out[name] = [round(x, 3), round(y, 3), round(z, 3)]
-    (proj / "data" / "dummies.json").write_text(json.dumps(dummies_out, indent=1))
+    # The main kn5 is kept SPAWN-FREE so several layouts can share it, each with its OWN start point.
+    # The loop's dummies go to data/dummies_full.json; scripts/ac/build_spawn_kn5.py exports the tiny
+    # <slug>__full.kn5 spawn stub (and __freeway.kn5 for the merged freeway layout) that models_<layout>.ini
+    # loads alongside this geometry kn5. (Baking spawns here would collide with the freeway layout's spawn.)
+    dummies_out = {name: [round(x, 3), round(y, 3), round(z, 3)] for name, (x, y, z) in placed.items()}
+    dummies_out["_facing_yaw"] = round(start_yaw, 6)
+    (proj / "data" / "dummies_full.json").write_text(json.dumps(dummies_out, indent=1))
 
     # 4. PBR materials (prefix -> texture set); export_kn5_addon re-derives shader from the same prefix
     from scripts.ac import pbr

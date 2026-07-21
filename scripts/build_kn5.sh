@@ -10,6 +10,8 @@ echo "━━ prep loop.blend -> AC-ready .blend"
 "$BL" --background --python scripts/ac/build_kn5.py       -- "$PROJ" | grep -iE "flipped|prepped|WARNING" || true
 echo "━━ export kn5 (vendored AC Tools addon, Blender 4.2)"
 "$BL" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ" | grep -iE "operator|KN5 EXISTS|INI mat" || true
+echo "━━ per-layout spawn kn5s (main kn5 is spawn-free; each layout's start point ships in a stub kn5)"
+"$BL" --background --python scripts/ac/build_spawn_kn5.py -- "$PROJ" | grep -iE "spawn_kn5" || true
 echo "━━ verify (drivability gate)"
 python3 -m scripts.ac.verify_kn5 "$PROJ"
 echo "━━ track folder (surfaces/ui/map/models)"

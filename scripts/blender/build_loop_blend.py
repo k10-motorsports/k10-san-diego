@@ -652,11 +652,11 @@ def main():
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + 0.10, z) for (x, y, z) in road["vertices"]]   # ~0.1 m proud of the terrain
-    # ONE continuous urban edge per side: road edge -> curb -> raised sidewalk -> graded down to the grass.
-    # Gives real sidewalks the WHOLE loop (not just the sparse OSM footways) AND removes the hover — the outer
-    # lip lands on the terrain, so road/curb/sidewalk/grass share heights with no floating edge.
-    kerb = ribbon.curb_sidewalk(centerline, widths, lift=0.10, curb_h=0.14, curb_face_w=0.08,
-                                sidewalk_w=1.8, grade_w=1.2, grass_clearance=0.10)
+    # A THIN curb lip at the road edge (NO wide sidewalk band) — closes the road->grass gap so the edge
+    # isn't a black/fall-through void, but stays tight to the pavement and can't read as "sidewalks
+    # everywhere". sidewalk_w=0 collapses the walkway; a short grade drops straight to the graded grass.
+    kerb = ribbon.curb_sidewalk(centerline, widths, lift=0.10, curb_h=0.12, curb_face_w=0.06,
+                                sidewalk_w=0.0, grade_w=0.5, grass_clearance=0.10)
     marks = ribbon.lane_markings(centerline, widths,   # painted lines: white edges/dashes + (two-way) yellow centre
                                  center_yellow=route.get("divided_double", True))
     for mk in marks.values():
@@ -670,17 +670,19 @@ def main():
             dst["uvs"] += src["uvs"]
         dst["tris"] += [(a + off, b + off, c + off) for (a, b, c) in src["tris"]]
 
+    # Connectors + split carriageways get the ROAD ONLY (no curb/sidewalk): a swept curb here ran ACROSS
+    # the main loop at every junction and doubled up in the medians between split carriageways — the
+    # "sidewalks jutting into the road". The road meets the conformed grass directly (grass is physical, so
+    # no fall-through). Painted lines only on the wider connectors so narrow lanes don't get a centre stripe.
     for cname, cpts, cw in connectors:
         crib = ribbon.road_ribbon(cpts, cw)
         crib["vertices"] = [(x, y + 0.10, z) for (x, y, z) in crib["vertices"]]
         _append(road, crib)
-        cker = ribbon.curb_sidewalk(cpts, cw, lift=0.10, curb_h=0.14, curb_face_w=0.08,
-                                    sidewalk_w=1.5, grade_w=1.2, grass_clearance=0.10)
-        _append(kerb, cker)
-        cmk = ribbon.lane_markings(cpts, cw, center_yellow=True)
-        for _k in ("white", "yellow"):
-            cmk[_k]["vertices"] = [(x, y + 0.115, z) for (x, y, z) in cmk[_k]["vertices"]]
-            _append(marks[_k], cmk[_k])
+        if cw and cw[0] >= 9.5:
+            cmk = ribbon.lane_markings(cpts, cw, center_yellow=True)
+            for _k in ("white", "yellow"):
+                cmk[_k]["vertices"] = [(x, y + 0.115, z) for (x, y, z) in cmk[_k]["vertices"]]
+                _append(marks[_k], cmk[_k])
 
     # --- terrain: upsample the coarse 40 m DEM (finer facets), conform to the road with a small
     #     clearance so near-road ground sits just BELOW the road edge (no coarse facet pokes up through

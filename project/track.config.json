@@ -1,7 +1,7 @@
 {
   "name": "K10 - San Diego",
   "slug": "san_diego_lake_murray",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "author": "k10-san-diego",
   "year": 2026,
   "_about": "A single drivable LOOP around Lake Murray (Kevin's childhood neighborhood). This repo is the standalone, Blender-first home for the track: the loop is mapped from the REAL roads (OpenStreetMap) at REAL elevation (USGS 3DEP), imported into Blender, and shaped there interactively (Kevin designs, Claude operates) BEFORE any kn5 export. Start point = just the 5-road main loop; everything else is added deliberately, in Blender.",
@@ -77,8 +77,16 @@
     {
       "id": "full",
       "ai": "ai/full",
+      "spawn": true,
       "uses_connectors": [],
-      "_doc": "K10 - San Diego: the Lake Murray loop (with the Del Cerro sub-loop + per-direction carriageways) AND the I-5/CA-52/CA-163/I-8 freeway network, merged into ONE kn5. Freeway sits ~12 km west at its real position."
+      "_doc": "K10 - San Diego: the Lake Murray loop (Del Cerro sub-loop + per-direction carriageways). Spawns on the loop."
+    },
+    {
+      "id": "freeway",
+      "ai": "ai/freeway",
+      "spawn": true,
+      "uses_connectors": [],
+      "_doc": "The San Diego freeway network (I-5/CA-52/CA-163/I-8, every ramp). SAME kn5 as 'full' \u2014 select this to spawn on the freeway (~12 km west). A road connection between the two comes later."
     }
   ],
   "lighting": {

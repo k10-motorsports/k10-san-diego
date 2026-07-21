@@ -16,3 +16,8 @@ project_freeway_net/data/*.obj
 project_freeway_net/data/*.mtl
 project_freeway_net/data/ground.local.json
 project_freeway_net/data/network_preview.svg
+# merge intermediates (regenerable by scripts/ac/merge_freeway.py)
+project/data/track_freeway.obj
+project/data/env_freeway.obj
+project/data/*.obj
+project/data/*.svg
