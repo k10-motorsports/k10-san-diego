@@ -55,7 +55,12 @@
       ]
     },
     "connectors_kml": [],
-    "connector_width_m": 10.0
+    "connector_width_m": 10.0,
+    "split_carriageways": [
+      "Navajo Road",
+      "College Avenue"
+    ],
+    "split_width_m": 11.0
   },
   "loop": true,
   "mirror_x": false,

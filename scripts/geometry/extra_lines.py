@@ -118,7 +118,114 @@ def build(project_dir: str | Path) -> dict:
     cw_over = route.get("connector_widths_m", {}) or {}
     cw_def = float(route.get("connector_width_m", DEFAULT_CONNECTOR_WIDTH_M))
 
+    # main-loop path (local X,Z) for split-carriageway proximity clipping
+    main_xz = [(p[0], p[2]) for p in loc["points_xyz_m"]]
+
+    def _chains(ways):
+        segs = [list(w) for w in ways if len(w) >= 2]
+        used = [False] * len(segs); out = []
+
+        def key(p):
+            return (round(p[0], 6), round(p[1], 6))
+        for i, s in enumerate(segs):
+            if used[i]:
+                continue
+            used[i] = True; ch = list(s); ext = True
+            while ext:
+                ext = False
+                for j, t in enumerate(segs):
+                    if used[j]:
+                        continue
+                    if key(ch[-1]) == key(t[0]):
+                        ch += t[1:]
+                    elif key(ch[-1]) == key(t[-1]):
+                        ch += list(reversed(t))[1:]
+                    elif key(ch[0]) == key(t[-1]):
+                        ch = t[:-1] + ch
+                    elif key(ch[0]) == key(t[0]):
+                        ch = list(reversed(t))[:-1] + ch
+                    else:
+                        continue
+                    used[j] = True; ext = True
+            out.append(ch)
+        return sorted(out, key=polyline_length, reverse=True)
+
+    def _near_main(coords, reach_m):
+        """Longest contiguous run of a chain whose points lie within reach_m of the main loop (in local m).
+        Isolates the OPPOSING carriageway segment that parallels the loop from the rest of a long road."""
+        xz = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in coords]
+        near = []
+        for x, z in xz:
+            d = min((x - mx) ** 2 + (z - mz) ** 2 for mx, mz in main_xz[::2])
+            near.append(d <= reach_m * reach_m)
+        best = (0, 0); i = 0; n = len(coords)
+        while i < n:
+            if near[i]:
+                j = i
+                while j < n and near[j]:
+                    j += 1
+                if j - i > best[1] - best[0]:
+                    best = (i, j)
+                i = j
+            else:
+                i += 1
+        return coords[best[0]:best[1]]
+
+    def _mean_lat(coords):
+        """Mean lateral distance (local m) of a chain's points from the main loop."""
+        xz = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in coords]
+        return sum(min(math.hypot(x - mx, z - mz) for mx, mz in main_xz[::2]) for x, z in xz) / len(xz)
+
+    split_roads = route.get("split_carriageways", []) or []
+    split_conns = {}
+    narrow_idx: set = set()
+    CLIP_REACH = float(route.get("split_reach_m", 45.0))
+    OPP_MIN, OPP_MAX = 6.0, 40.0   # opposing carriageway sits this far (m) laterally from the loop's carriageway
+    for road in split_roads:
+        chs = [c for c in _chains(byname.get(road, [])) if polyline_length(c) > 200]
+        if len(chs) < 2:
+            print(f"[extra_lines] split '{road}': not divided (only {len(chs)} carriageway) — skipped")
+            continue
+        # Clip every carriageway chain to the part running alongside the loop; the loop RIDES the nearest
+        # (~1 m). The OPPOSING carriageway is the clipped run sitting OPP_MIN..OPP_MAX m laterally away.
+        cands = []
+        for c in chs:
+            run = _near_main(c, CLIP_REACH)
+            if polyline_length(run) < 120:
+                continue
+            cands.append((_mean_lat(run), run))
+        opp = next((run for lat, run in sorted(cands) if OPP_MIN <= lat <= OPP_MAX), None)
+        loop_run = next((run for lat, run in sorted(cands) if lat < OPP_MIN), None)
+        if opp is None or loop_run is None:
+            near = [f"{lat:.0f}m" for lat, _ in sorted(cands)]
+            print(f"[extra_lines] split '{road}': no clean loop+opposing carriageway pair "
+                  f"(runs at {near}) — skipped")
+            continue
+        split_conns[road.lower().replace(" ", "_") + "_opp"] = opp
+        # main-loop vertices that ride THIS road's carriageway -> narrow them to a single carriageway so the
+        # double-wide ribbon doesn't overlap the opposing carriageway we're about to add beside it.
+        lr_xz = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in loop_run]
+        for i, (mx, mz) in enumerate(main_xz):
+            if min((mx - lx) ** 2 + (mz - lz) ** 2 for lx, lz in lr_xz[::3]) < 12.0 ** 2:
+                narrow_idx.add(i)
+        print(f"[extra_lines] split '{road}': opposing carriageway {polyline_length(opp):.0f} m alongside loop")
+
     out_conns = []
+    # opposing carriageways build first (single-carriageway width), then the configured connectors
+    for cname, opp_coords in split_conns.items():
+        coords = resample(opp_coords, RESAMPLE_M)
+        if len(coords) < 2:
+            continue
+        z_raw = usgs_3dep.sample_points(coords)
+        spacing = _line_spacing_m(coords, m_lon, m_lat)
+        z = _despike_smooth_cap(z_raw, spacing)
+        pts = [[round((lo - lon0) * m_lon, 2), round(zz - elev0, 2), round((la - lat0) * m_lat, 2)]
+               for (lo, la), zz in zip(coords, z)]
+        w = float(route.get("split_width_m", 11.0))
+        out_conns.append({"name": cname, "kind": "carriageway",
+                          "points_xyz_m": pts, "widths_m": [w] * len(pts)})
+        print(f"[extra_lines] {cname}: {len(pts)} pts, z {min(z):.1f}..{max(z):.1f} m, width {w:.1f} m")
+
     for cname, rnames in connectors_cfg.items():
         merged = merge_ways([w for rn in rnames for w in byname.get(rn, [])])
         merged = _clip_bbox(merged) if merged else []
@@ -137,10 +244,15 @@ def build(project_dir: str | Path) -> dict:
                           "points_xyz_m": pts, "widths_m": [w] * len(pts)})
         print(f"[extra_lines] {name}: {len(pts)} pts, z {min(z):.1f}..{max(z):.1f} m (elev0 {elev0:.1f}), width {w:.1f} m")
 
-    (data / "connectors.local.json").write_text(
-        json.dumps({"connectors": out_conns}), encoding="utf-8")
-    print(f"[extra_lines] wrote {len(out_conns)} connector line(s) -> data/connectors.local.json")
-    return {"connectors": len(out_conns)}
+    payload = {"connectors": out_conns}
+    if narrow_idx:
+        payload["narrow_main"] = {"width_m": float(route.get("split_width_m", 11.0)),
+                                  "idx": sorted(narrow_idx)}
+    (data / "connectors.local.json").write_text(json.dumps(payload), encoding="utf-8")
+    print(f"[extra_lines] wrote {len(out_conns)} extra line(s)"
+          + (f" + {len(narrow_idx)} main-loop verts to narrow" if narrow_idx else "")
+          + " -> data/connectors.local.json")
+    return {"connectors": len(out_conns), "narrow": len(narrow_idx)}
 
 
 def main() -> None:

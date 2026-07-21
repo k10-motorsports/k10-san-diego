@@ -628,13 +628,23 @@ def main():
     connectors = []
     conn_path = data / "connectors.local.json"
     if conn_path.exists():
-        for c in json.loads(conn_path.read_text()).get("connectors", []):
+        conn_data = json.loads(conn_path.read_text())
+        for c in conn_data.get("connectors", []):
             cpts = [tuple(p) for p in c["points_xyz_m"]]
             if len(cpts) < 2:
                 continue
             cpts = smoothmod.smooth_centerline(cpts, sigma_pts=1.5, passes=1, sigma_y_pts=1.0)
             connectors.append((c["name"], cpts, list(c["widths_m"])))
         print(f"[blend] {len(connectors)} connector line(s): " + ", ".join(n for n, _, _ in connectors))
+        # split carriageways: narrow the main loop where it rides a divided road to ONE carriageway, so the
+        # double-wide ribbon doesn't overlap the opposing carriageway added beside it (per-direction grade).
+        nm = conn_data.get("narrow_main")
+        if nm:
+            tw = float(nm["width_m"])
+            for i in nm["idx"]:
+                if 0 <= i < len(widths):
+                    widths[i] = min(widths[i], tw)
+            print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m)")
 
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
