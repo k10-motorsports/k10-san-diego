@@ -181,6 +181,7 @@ def build(project_dir: str | Path) -> dict:
     narrow_idx: set = set()
     CLIP_REACH = float(route.get("split_reach_m", 45.0))
     OPP_MIN, OPP_MAX = 6.0, 40.0   # opposing carriageway sits this far (m) laterally from the loop's carriageway
+    MIN_SEP = float(route.get("split_min_sep_m", 11.0))   # only add opposing where carriageways are this far apart
     for road in split_roads:
         chs = [c for c in _chains(byname.get(road, [])) if polyline_length(c) > 200]
         if len(chs) < 2:
@@ -200,6 +201,26 @@ def build(project_dir: str | Path) -> dict:
             near = [f"{lat:.0f}m" for lat, _ in sorted(cands)]
             print(f"[extra_lines] split '{road}': no clean loop+opposing carriageway pair "
                   f"(runs at {near}) — skipped")
+            continue
+        # Keep only where the two carriageways are CLEANLY DIVIDED (>= MIN_SEP apart). Where a divided road
+        # merges back to one (junctions, tapers), the carriageways converge and a separate opposing ribbon
+        # would overlap the main deck — so drop those points and keep the longest well-separated run.
+        opp_xz = [((lo - lon0) * m_lon, (la - lat0) * m_lat) for lo, la in opp]
+        sep_ok = [min(math.hypot(x - mx, z - mz) for mx, mz in main_xz[::2]) >= MIN_SEP for x, z in opp_xz]
+        best = (0, 0); i = 0; n = len(opp)
+        while i < n:
+            if sep_ok[i]:
+                j = i
+                while j < n and sep_ok[j]:
+                    j += 1
+                if j - i > best[1] - best[0]:
+                    best = (i, j)
+                i = j
+            else:
+                i += 1
+        opp = opp[best[0]:best[1]]
+        if polyline_length(opp) < 200:
+            print(f"[extra_lines] split '{road}': no ≥200 m cleanly-divided run (>{MIN_SEP:.0f} m apart) — skipped")
             continue
         split_conns[road.lower().replace(" ", "_") + "_opp"] = opp
         # main-loop vertices that ride THIS road's carriageway -> narrow them to a single carriageway so the

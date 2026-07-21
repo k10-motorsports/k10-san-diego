@@ -616,8 +616,6 @@ def main():
         passes=int(route.get("smooth_passes", 2)),
         sigma_y_pts=float(route.get("smooth_sigma_y_pts", 1.5)))
     i8 = _load_i8(proj)
-    local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
-    (data / "centerline.local.json").write_text(json.dumps(local))
     print(f"[blend] smoothed curves: max kink {smoothmod.max_kink_deg(raw_centerline):.1f} -> "
           f"{smoothmod.max_kink_deg(centerline):.1f} deg")
 
@@ -645,6 +643,11 @@ def main():
                 if 0 <= i < len(widths):
                     widths[i] = min(widths[i], tw)
             print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m)")
+
+    # persist the smoothed centerline + narrowed widths so build_kn5 (dummies) + minimap share this geometry
+    local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]
+    local["widths_m"] = widths
+    (data / "centerline.local.json").write_text(json.dumps(local))
 
     # --- road + kerbs (tight to real elevation) ---
     road = ribbon.road_ribbon(centerline, widths)
