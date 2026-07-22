@@ -157,6 +157,28 @@ fix deterministically by reversing only normal.z<0 faces, never `recalc_face_nor
 gates it (no dup meshes, drivable face-up, under the 65 k cap, spawns on road), and `track_folder`
 writes surfaces.ini / ui / map / models.ini / CSP ext_config. Ships via GitHub Releases, not git.
 
+## Driveability: the DRIVE-TEST GATE (do not ship a track that fails it)
+
+`scripts/build_kn5.sh` runs the **drive test as a hard gate** right after the blend prep, before the kn5
+is written — `export_drive_obj.py` dumps the built triangles to `data/track.obj`, then
+`python -m scripts.geometry.drive_test` sweeps six wheel paths along the **loop AND every extra line**
+(`data/finished_connectors.json`); a FAIL (exit 1) aborts the build via `set -e`. This is the mechanism
+that stops the same undriveable bugs recurring — vertex audits (audit_mesh/verify_kn5) pass while a track
+drives badly, so this is the real bar. Gate: ground-through-lane 0, obstructions-in-corridor 0,
+severe-steps ≤ 12/km. **Never weaken or bypass it to make a build pass.**
+
+Reusable curve/driveability fixes baked into `build_loop_blend.py` (apply to the loop AND connectors):
+- **`_clamp_width_to_curvature`** — a ribbon whose half-width exceeds the local corner radius FOLDS on
+  tight bends (overlapping triangles = the steps that damage the car). Clamp half ≤ 0.8·radius, with a
+  width **slew-limit** so the clamp tapers instead of notching. Any width edit (narrow_main, closure spike)
+  must likewise be smoothed/slew-limited — abrupt width change → ribbon notch → soft-top.
+- **`_graft_connector_y_to_loop`** — where a side street crosses/junctions the loop, its own 3DEP sits
+  ~0.5 m off the loop's (a step ON the loop); blend it to the loop grade at the crossing only. Parallel
+  split carriageways (kind=carriageway) keep their own grade. (Grade-matching connectors to EACH OTHER
+  backfired — dense network, mutual pulling, more bumps — don't retry.)
+- **Streetlight pools** (`ext_config.py`): warm amber sodium, config-overridable via `lighting.street_color`
+  / `street_brightness` / `street_range_m` / `street_spot_deg` / `street_spot_sharpness`.
+
 ## Commands
 
 **Build the Blender scene from the mapped loop** (resets base geometry — run when you want a fresh start):
