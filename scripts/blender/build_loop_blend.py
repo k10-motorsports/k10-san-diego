@@ -270,6 +270,86 @@ def _grid_sampler(grid_xyz):
     return h
 
 
+def _clamp_width_to_curvature(pts, widths, *, factor=0.8, wfloor=7.0, closed=True, smooth_k=5):
+    """A ribbon whose HALF-width exceeds the local corner radius folds on the INSIDE of the turn — the
+    inner edge crosses the centre of curvature and the triangles overlap, so a wheel dropping across the
+    fold reads a step/break (the "tight corners damage the car"). Clamp each width so half <= factor*R,
+    then smooth the clamp so it eases in — but never let the smoothed value exceed the per-vertex fold
+    limit (else the corner folds again). Returns a NEW widths list. Applies to the loop and each connector."""
+    n = len(pts)
+    if n < 5:
+        return list(widths)
+    INF = 1e9
+    limit = [INF] * n
+    for i in range(n):
+        a = pts[(i - 2) % n] if closed else pts[max(0, i - 2)]
+        b = pts[i]
+        c = pts[(i + 2) % n] if closed else pts[min(n - 1, i + 2)]
+        v1x, v1z = b[0] - a[0], b[2] - a[2]
+        v2x, v2z = c[0] - b[0], c[2] - b[2]
+        l1 = math.hypot(v1x, v1z) or 1e-9
+        l2 = math.hypot(v2x, v2z) or 1e-9
+        dot = max(-1.0, min(1.0, (v1x * v2x + v1z * v2z) / (l1 * l2)))
+        ang = math.acos(dot)
+        if ang > 1e-4:
+            limit[i] = max(wfloor, 2.0 * factor * (((l1 + l2) / 2.0) / ang))
+    clamped = [min(widths[i], limit[i]) for i in range(n)]
+    if closed:
+        sm = [sum(clamped[(i + d) % n] for d in range(-smooth_k, smooth_k + 1)) / (2 * smooth_k + 1) for i in range(n)]
+    else:
+        sm = [sum(clamped[max(0, min(n - 1, i + d))] for d in range(-smooth_k, smooth_k + 1)) / (2 * smooth_k + 1) for i in range(n)]
+    out = [max(wfloor, min(sm[i], limit[i])) for i in range(n)]
+    # SLEW-LIMIT widening: a clamped corner (say 7 m) that jumps straight back to full width leaves a
+    # ribbon notch/gap at the exit (the del_cerro soft-top). Cap how fast width can GROW so it tapers out.
+    max_dw = 0.35   # metres of widening per vertex (~3 m spacing → ~1.2 m per lane-length)
+    rng = range(1, n)
+    for i in rng:
+        j = i - 1
+        out[i] = min(out[i], out[j] + max_dw)
+    for i in range(n - 2, -1, -1):
+        out[i] = min(out[i], out[i + 1] + max_dw)
+    if closed:  # one wrap-around pass each way so the seam tapers too
+        for i in list(range(n)) + [0]:
+            out[i] = min(out[i], out[(i - 1) % n] + max_dw)
+        for i in list(range(n - 1, -1, -1)) + [n - 1]:
+            out[i] = min(out[i], out[(i + 1) % n] + max_dw)
+    return out
+
+
+def _graft_connector_y_to_loop(loop_pts, loop_widths, cpts, *, over_margin=3.0, fade=14.0, bucket=50.0):
+    """Where a connector passes OVER the loop pavement (an at-grade intersection), its OWN 3DEP can sit up
+    to ~0.5 m off the loop's — a step ON the loop for a car crossing it, and a jolt turning onto the street.
+    Same physical intersection, independently sampled. Blend the connector's height to the loop's near such
+    crossings (weight 1 over the pavement, fading out over ``fade`` m). Only triggers within the loop's
+    half-width+margin, so PARALLEL runs (navajo_opp, which sits BESIDE the loop) keep their own grade."""
+    rb: dict = {}
+    for i in range(len(loop_pts)):
+        x, _y, z = loop_pts[i]
+        rb.setdefault((int(x // bucket), int(z // bucket)), []).append((x, z, loop_pts[i][1], loop_widths[i] / 2.0))
+
+    def nearest(x, z):
+        bx, bz = int(x // bucket), int(z // bucket)
+        best_d, best_y, best_hw = 1e18, None, 8.0
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for (rx, rz, ry, hw) in rb.get((bx + dx, bz + dz), ()):
+                    d = (x - rx) ** 2 + (z - rz) ** 2
+                    if d < best_d:
+                        best_d, best_y, best_hw = d, ry, hw
+        return math.sqrt(best_d), best_y, best_hw
+
+    out = []
+    for (x, y, z) in cpts:
+        d, ly, hw = nearest(x, z)
+        if ly is not None:
+            over = hw + over_margin
+            if d < over + fade:
+                w = 1.0 if d <= over else max(0.0, 1.0 - (d - over) / fade)
+                y = y * (1 - w) + ly * w
+        out.append((x, y, z))
+    return out
+
+
 def _post_box(verts, tris, x, z, y0, y1, r):
     b = len(verts)
     for (dx, dz) in [(-r, -r), (r, -r), (r, r), (-r, r)]:
@@ -640,12 +720,25 @@ def main():
     conn_path = data / "connectors.local.json"
     if conn_path.exists():
         conn_data = json.loads(conn_path.read_text())
+        # Pass 1: load + smooth every extra line (need them ALL before grade-matching so a connector can
+        # match the OTHER streets it junctions, not just the loop).
+        raw_conns = []
         for c in conn_data.get("connectors", []):
             cpts = [tuple(p) for p in c["points_xyz_m"]]
             if len(cpts) < 2:
                 continue
             cpts = smoothmod.smooth_centerline(cpts, sigma_pts=1.5, passes=1, sigma_y_pts=1.0)
-            connectors.append((c["name"], cpts, list(c["widths_m"])))
+            raw_conns.append([c["name"], cpts, c.get("kind"), list(c["widths_m"])])
+        # Pass 2: grade-match each CONNECTOR to the LOOP at its crossings/junctions (so a car crossing the
+        # loop or turning onto a street doesn't hit a grade step), then clamp width. Matching connectors to
+        # EACH OTHER too was tried and backfired — in the dense Del Cerro network every street gets pulled
+        # toward many neighbours and ripples (severe 162→225). Split carriageways (navajo_opp) run BESIDE
+        # the loop and keep their own grade — skipped.
+        for idx, (name, cpts, kind, cwid) in enumerate(raw_conns):
+            if kind == "connector":
+                cpts = _graft_connector_y_to_loop(centerline, widths, cpts)
+            cw = _clamp_width_to_curvature(cpts, cwid, closed=False)  # no fold on tight bends
+            connectors.append((name, cpts, cw))
         print(f"[blend] {len(connectors)} connector line(s): " + ", ".join(n for n, _, _ in connectors))
         # split carriageways: narrow the main loop where it rides a divided road to ONE carriageway, so the
         # double-wide ribbon doesn't overlap the opposing carriageway added beside it (per-direction grade).
@@ -661,6 +754,13 @@ def main():
             _w = widths; _n = len(_w); _K = 6
             widths = [sum(_w[(i + d) % _n] for d in range(-_K, _K + 1)) / (2 * _K + 1) for i in range(_n)]
             print(f"[blend] narrowed {len(nm['idx'])} main-loop verts to single carriageway ({tw:.0f} m), tapered")
+
+    # curvature-aware width clamp: keep the ribbon's half-width inside the local corner radius so it never
+    # folds on a tight bend (the steps/breaks that damaged the car in tight corners). Loop is closed → wrap.
+    _wmin = min(widths)
+    widths = _clamp_width_to_curvature(centerline, widths, closed=True)
+    print(f"[blend] curvature width clamp: min road width {_wmin:.1f} -> {min(widths):.1f} m "
+          f"({sum(1 for a, b in zip(widths, local['widths_m']) if b - a > 0.5)} verts narrowed at corners)")
 
     # persist the smoothed centerline + narrowed widths so build_kn5 (dummies) + minimap share this geometry
     local["points_xyz_m"] = [[round(c, 4) for c in p] for p in centerline]

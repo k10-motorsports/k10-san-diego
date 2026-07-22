@@ -59,11 +59,15 @@ def generate(project_dir: str | Path) -> Path:
     lp_radius_km = lp.get("radius_km", 6.0)
     # Streetlight tuning. With ~250 poles the pools overlap, so per-light brightness must be LOW or the
     # whole scene blows out (the "undriveable at night" bug: was 28). These are gentle, config-overridable.
-    st_bright = float(lcfg.get("street_brightness", 3.2))  # [LIGHT] COLOR 4th value (intensity)
-    st_range = float(lcfg.get("street_range_m", 20.0))
-    st_spot = float(lcfg.get("street_spot_deg", 104.0))
+    # Tuned to a warm sodium look: YELLOWER + DIMMER + wider/softer pools that nearly meet at the edges.
+    st_color = lcfg.get("street_color", [255, 198, 108])   # amber sodium (RGB 0-255) — yellower than white
+    st_bright = float(lcfg.get("street_brightness", 2.1))  # [LIGHT] COLOR 4th value (intensity) — dimmer
+    st_range = float(lcfg.get("street_range_m", 28.0))     # pool reach — wider so pools nearly touch (~55 m poles)
+    st_spot = float(lcfg.get("street_spot_deg", 120.0))    # wider cone → the pool spreads farther on the ground
+    st_sharp = float(lcfg.get("street_spot_sharpness", 0.18))  # softer edge so neighbouring pools blend/meet
     st_fade = float(lcfg.get("street_fade_at_m", 165.0))
-    st_emissive = float(lcfg.get("street_emissive", 0.55)) # lamp-head glow (was 1.6 → bloomed)
+    st_emissive = float(lcfg.get("street_emissive", 0.5))  # lamp-head glow (was 1.6 → bloomed)
+    st_rgb = ", ".join(str(int(c)) for c in st_color)
 
     out = [
         "; ============================================================================",
@@ -107,9 +111,9 @@ def generate(project_dir: str | Path) -> Path:
                     "ACTIVE = 1",
                     f"POSITION = {x}, {y}, {-z}",           # local (E,up,N) -> AC (x, y up, -z)
                     "DIRECTION = 0, -1, 0",                 # shine down
-                    f"COLOR = 255, 214, 150, {st_bright}",  # warm sodium-white — RGB 0-255, last = brightness (LOW: many poles overlap)
+                    f"COLOR = {st_rgb}, {st_bright}",       # amber sodium — RGB 0-255, last = brightness (LOW: many poles overlap)
                     "COLOR_OFF = 0, 0, 0, 0",               # fully dark when the night condition is false
-                    f"SPOT = {st_spot}", "SPOT_SHARPNESS = 0.3",
+                    f"SPOT = {st_spot}", f"SPOT_SHARPNESS = {st_sharp}",
                     f"RANGE = {st_range}", "RANGE_GRADIENT_OFFSET = 0.2",
                     f"FADE_AT = {st_fade}", "FADE_SMOOTH = 35",
                     "CONDITION = NIGHT_SMOOTH", "SPECULAR_MULT = 0.6", ""]
@@ -117,7 +121,7 @@ def generate(project_dir: str | Path) -> Path:
                 "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                f"VALUE_0 = 255, 214, 150, {st_emissive}",  # ksEmissive is 0-255 RGB + brightness (gentle glow)
+                f"VALUE_0 = {st_rgb}, {st_emissive}",       # ksEmissive is 0-255 RGB + brightness (gentle glow, matches pool)
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 

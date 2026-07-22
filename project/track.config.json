@@ -1,7 +1,7 @@
 {
   "name": "K10 - San Diego",
   "slug": "san_diego_lake_murray",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "author": "k10-san-diego",
   "year": 2026,
   "_about": "A single drivable LOOP around Lake Murray (Kevin's childhood neighborhood). This repo is the standalone, Blender-first home for the track: the loop is mapped from the REAL roads (OpenStreetMap) at REAL elevation (USGS 3DEP), imported into Blender, and shaped there interactively (Kevin designs, Claude operates) BEFORE any kn5 export. Start point = just the 5-road main loop; everything else is added deliberately, in Blender.",
@@ -57,8 +57,7 @@
     "connectors_kml": [],
     "connector_width_m": 10.0,
     "split_carriageways": [
-      "Navajo Road",
-      "College Avenue"
+      "Navajo Road"
     ],
     "split_width_m": 9.0
   },
