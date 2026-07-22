@@ -12,6 +12,8 @@ echo "━━ export kn5 (vendored AC Tools addon, Blender 4.2)"
 "$BL" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ" | grep -iE "operator|KN5 EXISTS|INI mat" || true
 echo "━━ verify (drivability gate)"
 python3 -m scripts.ac.verify_kn5 "$PROJ"
+echo "━━ ground coherence (kn5 gate: double-sheet terrain, prop feet on dirt, road support)"
+python3 -m scripts.ac.kn5_ground_check "$PROJ"
 echo "━━ track folder (surfaces/ui/map/models)"
 python3 -m scripts.ac.track_folder "$PROJ" | sed 's/^/   /'
 cp "$PROJ/build/$SLUG.kn5" "$PROJ/build/$SLUG/"
