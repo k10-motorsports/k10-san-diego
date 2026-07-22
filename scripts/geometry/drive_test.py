@@ -309,9 +309,10 @@ def run(project_dir: str | Path) -> dict:
     for pname, pp, ww in paths_to_drive:
         # the main ring is CLOSED (no ends); extra lines are OPEN — exempt their termini from soft-top
         edge_skip = 0.0 if pname == "loop" else 4.0
-        # track_deck everywhere: where a connector/edge crosses another road, the RIDE should follow its OWN
-        # deck, not flicker onto the crossing deck (phantom steps). On a plain single road nearest==highest.
-        pr, on, lp = _sweep(pp, ww, surface, obstacle, edge_skip, win, track_deck=True)
+        # deck-tracking is for NETWORKS (stacked/parallel decks flicker the 'highest' pick into phantom
+        # steps). On the loop it HURTS — nearest-to-y_ref flickers between the road and its curb/connector
+        # overlaps (severe 162 -> 2371), so keep the loop on 'highest'.
+        pr, on, lp = _sweep(pp, ww, surface, obstacle, edge_skip, win, track_deck=network_mode)
         lap += lp
         for k in problems:
             problems[k] += pr[k]

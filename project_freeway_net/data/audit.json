@@ -11,7 +11,7 @@
  "D_wall_on_road": 523,
  "E_wall_floating": 7,
  "F_curb_not_flush": 0,
- "G_prop_floating": 26663,
+ "G_prop_floating": 1,
  "H_grade_launch": 0,
  "worst_poke_m": 0.0,
  "worst_float_m": 4.97,
