@@ -207,17 +207,13 @@ def run(project_dir: str | Path) -> dict:
     project = Path(project_dir)
     data = project / "data"
     cfg = json.loads((project / "track.config.json").read_text())
-    fin = data / "finished_centerline.json"
-    if fin.exists():
-        # the line the ribbon was actually swept along (already in mesh frame) — driving the raw
-        # centerline instead reads phantom obstructions where corner-rounding moved the pavement
-        lc = json.loads(fin.read_text())
-        pts = [tuple(p) for p in lc["points_xyz_m"]]
-    else:
-        mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
-        lc = json.loads((data / "centerline.local.json").read_text())
-        pts = [(mirror * p[0], p[1], p[2]) for p in lc["points_xyz_m"]]
-    widths = lc["widths_m"]
+    # NETWORK mode: a freeway is a branching graph, not one centreline. build_network_mesh emits
+    # finished_edges.json (every drivable edge's as-built deck centreline + widths, ramps included); we sweep
+    # each edge. A freeway's 1WALL barriers line every edge BY DESIGN — they're containment, not surprise
+    # obstacles (walls-in-road is the mesh-audit's job), so they're excluded from the corridor scan here.
+    fe = data / "finished_edges.json"
+    network_mode = fe.exists()
+    obst_skip = ("1WALL",) if network_mode else ()
 
     surface = TriField()      # everything the car can roll on
     obstacle = TriField()     # everything else that could stand in the corridor
@@ -230,28 +226,51 @@ def run(project_dir: str | Path) -> dict:
             up = grp["name"].upper()
             if up.startswith(PAINT):
                 continue
-            field = surface if up.startswith(DRIVABLE) else obstacle
+            if up.startswith(DRIVABLE):
+                field = surface
+            elif obst_skip and up.startswith(obst_skip):
+                continue
+            else:
+                field = obstacle
             for tri in grp["tris"]:
                 field.add(verts, tri, grp["name"])
 
-    # Drive the main ring PLUS every extra line (Del Cerro sub-loop + split carriageways). The extras were
-    # invisible to earlier releases — this test only swept the main centerline, so their floating/disconnected
-    # ribbons never registered. Drive each on its FINISHED (smoothed, mesh-frame) geometry so phantom
-    # obstructions from corner-rounding don't fire; fall back to the raw connectors.local.json otherwise.
-    paths_to_drive = [("loop", pts, widths)]
-    mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
-    fc = data / "finished_connectors.json"
-    craw = data / "connectors.local.json"
-    if fc.exists():
-        for c in json.loads(fc.read_text()):
-            cp = [tuple(p) for p in c["points_xyz_m"]]
+    if network_mode:
+        # sweep every drivable edge (ramps + mainlines) on its as-built centreline
+        paths_to_drive = []
+        for e in json.loads(fe.read_text()):
+            cp = [tuple(p) for p in e["points_xyz_m"]]
             if len(cp) >= 2:
-                paths_to_drive.append((c["name"], cp, c["widths_m"]))
-    elif craw.exists():
-        for c in json.loads(craw.read_text()).get("connectors", []):
-            cp = [(mirror * p[0], p[1], p[2]) for p in c["points_xyz_m"]]
-            if len(cp) >= 2:
-                paths_to_drive.append((c["name"], cp, c["widths_m"]))
+                paths_to_drive.append((f"e{e['id']}" + ("·ramp" if e.get("is_ramp") else ""),
+                                       cp, e["widths_m"]))
+    else:
+        # LOOP mode: the main ring on its FINISHED (smoothed, mesh-frame) geometry — driving the raw
+        # centerline instead reads phantom obstructions where corner-rounding moved the pavement.
+        fin = data / "finished_centerline.json"
+        if fin.exists():
+            lc = json.loads(fin.read_text())
+            pts = [tuple(p) for p in lc["points_xyz_m"]]
+        else:
+            mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
+            lc = json.loads((data / "centerline.local.json").read_text())
+            pts = [(mirror * p[0], p[1], p[2]) for p in lc["points_xyz_m"]]
+        widths = lc["widths_m"]
+        # ...PLUS every extra line (Del Cerro sub-loop + split carriageways) — invisible to earlier releases
+        # (this test only swept the main centerline), which is how their floating ribbons shipped.
+        paths_to_drive = [("loop", pts, widths)]
+        mirror = -1.0 if cfg.get("mirror_x", False) else 1.0
+        fc = data / "finished_connectors.json"
+        craw = data / "connectors.local.json"
+        if fc.exists():
+            for c in json.loads(fc.read_text()):
+                cp = [tuple(p) for p in c["points_xyz_m"]]
+                if len(cp) >= 2:
+                    paths_to_drive.append((c["name"], cp, c["widths_m"]))
+        elif craw.exists():
+            for c in json.loads(craw.read_text()).get("connectors", []):
+                cp = [(mirror * p[0], p[1], p[2]) for p in c["points_xyz_m"]]
+                if len(cp) >= 2:
+                    paths_to_drive.append((c["name"], cp, c["widths_m"]))
 
     problems = {"soft_top_in_lane": [], "steps": [], "severe_steps": [], "kinks": [], "obstructions": []}
     obst_names = defaultdict(int)
@@ -307,8 +326,14 @@ def run(project_dir: str | Path) -> dict:
     print(f"  obstructed stations    : {report['obstruction_stations']}"
           + (f"  {report['obstruction_by_mesh']}" if obst_names else ""))
     if len(per_path) > 1:
-        print("  per line (len m / soft-top / obstructed / severe):")
-        for pn, lp, sof, ob, sev in per_path:
+        failing = [r for r in per_path if r[2] or r[3]]      # soft-top or obstructed
+        if len(per_path) > 25:                               # a network has hundreds of edges — show only fails
+            print(f"  {len(per_path)} lines driven; {len(failing)} with soft-top/obstruction:")
+            rows = failing or sorted(per_path, key=lambda r: -r[4])[:5]   # else the 5 roughest
+        else:
+            print("  per line (len m / soft-top / obstructed / severe):")
+            rows = per_path
+        for pn, lp, sof, ob, sev in rows:
             flag = "  <-- FAIL" if (sof or ob) else ""
             print(f"    {pn:22s} {lp:5d}m  soft {sof:3d}  obst {ob:3d}  severe {sev:3d}{flag}")
     for label, rows in (("soft_top", report["worst"]["soft_top"]),

@@ -686,6 +686,8 @@ def build(project_dir: str | Path) -> dict:
     wall_jobs: list[tuple[str, list, float]] = []   # (eid, deck_pts, half) — walls built AFTER the loop
     via_jobs: list[tuple[str, list, float]] = []     # (eid, deck_pts, half) — viaduct structs built AFTER the loop
     fw_edge_decks: list[tuple[str, list, float]] = []  # (eid, road-surface pts, half) — mainlines, for median fill
+    fw_finished_edges: list = []   # EVERY drivable edge's as-built deck centreline + widths -> finished_edges.json
+    #                                (drive_test sweeps these to seat-test the whole network, ramps included)
     from collections import defaultdict as _wdd
     fw_road_hash = _wdd(list)                        # deck pts (eid,x,y,z,tangent,half) for crossing/pier tests
     WCELL = 8.0
@@ -761,6 +763,15 @@ def build(project_dir: str | Path) -> dict:
         rib["vertices"] = [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in rib["vertices"]]
         orient_up(rib)
         road_meshes.append((f"e{f['properties']['id']}", rib))
+        # capture the as-built drivable centreline (deck + the same ROAD_LIFT_M the ribbon got) + widths, so
+        # drive_test can sweep the whole network — ramps and mainlines alike, at the exact built geometry.
+        fw_finished_edges.append({
+            "id": f["properties"]["id"],
+            "is_ramp": bool(f["properties"].get("is_ramp")),
+            "road_class": f["properties"].get("road_class"),
+            "points_xyz_m": [[round(px, 3), round(py + ROAD_LIFT_M, 3), round(pz, 3)] for px, py, pz in deck_pts],
+            "widths_m": [round(wv, 3) for wv in w_arr],
+        })
         # lane lines on MAINLINES only (a tapering ramp has no lanes to paint; keeps markings off the taper)
         if want_markings and not f["properties"].get("is_ramp"):
             _lanes = int(f["properties"].get("lanes") or 0) or max(1, int(round(w / LANE_W)) - 1)
@@ -1021,6 +1032,8 @@ def build(project_dir: str | Path) -> dict:
 
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     _write_mtl(data / "track.mtl")
+    (data / "finished_edges.json").write_text(json.dumps(fw_finished_edges), encoding="utf-8")
+    print(f"[mesh] wrote finished_edges.json: {len(fw_finished_edges)} drivable edges (for drive_test)")
 
     # Per-track spawns: each layout with a "spawn" anchor gets its OWN dummy set, written to
     # dummies_<id>.json -> exported as a tiny per-layout spawn kn5 (scripts/ac/build_spawn_kn5.py) that
