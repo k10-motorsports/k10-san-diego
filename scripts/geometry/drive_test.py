@@ -88,12 +88,18 @@ class TriField:
             for cj in range(int(z0 // CELL), int(z1 // CELL) + 1):
                 self.cells[(ci, cj)].append(k)
 
-    def top_at(self, x, z, y_ref=None, window=2.5):
+    def top_at(self, x, z, y_ref=None, window=2.5, both=False):
         """(height, owner_name) of the highest surface at (x,z). With ``y_ref``: highest surface
         within ±``window`` of the expected deck height — REQUIRED on tracks that cross over
         themselves (the Lariat's 19th St bridge over its own US-6 ramp): the global maximum reads
-        the upper deck while you drive the lower one, minting phantom multi-metre steps."""
+        the upper deck while you drive the lower one, minting phantom multi-metre steps.
+
+        ``both=True`` also returns the height of the surface NEAREST y_ref → (high, owner, near). On a
+        network, parallel/crossing decks sit within the window, so the HIGHEST flickers deck-to-deck and
+        mints phantom steps; the RIDE should track the edge's own deck (nearest y_ref) while the soft-top
+        check still uses the highest (to catch grass ON TOP)."""
         best, owner = None, None
+        near, neard = None, None
         for k in self.cells.get((int(x // CELL), int(z // CELL)), ()):
             t = self.tris[k]
             ax, ay, az, bx, by, bz, cx, cy, cz, name = t
@@ -110,6 +116,12 @@ class TriField:
                 continue
             if best is None or y > best:
                 best, owner = y, name
+            if both and y_ref is not None:
+                dd = abs(y - y_ref)
+                if neard is None or dd < neard:
+                    neard, near = dd, y
+        if both:
+            return best, owner, (near if near is not None else best)
         return best, owner
 
     def rising_in(self, x, z, r, deck_at, clear, cap):
@@ -135,11 +147,14 @@ class TriField:
         return hits
 
 
-def _sweep(pts, widths, surface, obstacle, edge_skip=0.0):
+def _sweep(pts, widths, surface, obstacle, edge_skip=0.0, window=2.5, track_deck=False):
     """Drive the six wheel paths along ONE line (main ring OR an extra connector/carriageway); return
     (problems, obst_names, lap_m). Each line is independent — heights/slopes reset at its start.
     ``edge_skip`` (m) exempts the ends from the soft-top check: an OPEN street legitimately terminates in
-    grass at its ends (a dead-end / where it should tie into the loop), which is a road end, not a hole."""
+    grass at its ends (a dead-end / where it should tie into the loop), which is a road end, not a hole.
+    ``window`` is the ±m band around the expected deck (y_ref) top_at searches — TIGHT on a network so the
+    sweep tracks the edge's OWN deck instead of flickering onto a parallel/crossing deck ~2.5 m away (which
+    minted phantom ~2.5 m 'severe steps')."""
     n = len(pts)
     st = [0.0]
     for i in range(1, n):
@@ -163,20 +178,31 @@ def _sweep(pts, widths, surface, obstacle, edge_skip=0.0):
         L = math.hypot(tx, tz) or 1e-9
         nx, nz = -tz / L, tx / L
         w = widths[i]
-        lane_half = max(w / 2 - 0.4, 0.8)
+        lane_half = min(max(w / 2 - 0.4, 0.8), w / 2)   # keep wheels ON the pavement — a tapering ramp tip
+        #                                                  is narrower than the 0.8 m floor, so don't test off it
         lines = (-w / 3, 0.0, w / 3)
         paths = [off + d for off in lines for d in (-WHEEL_HALF_TRACK, WHEEL_HALF_TRACK)]
-        deck_c, _ = surface.top_at(x, z, y_ref)
+        deck_c = surface.top_at(x, z, y_ref, window, both=True)[2] if track_deck else surface.top_at(x, z, y_ref, window)[0]
         for pi, off in enumerate(paths):
             if abs(off) > lane_half:
                 off = math.copysign(lane_half, off)
             px, pz = x + nx * off, z + nz * off
-            h, owner = surface.top_at(px, pz, y_ref)
+            if track_deck:
+                # RIDE tracks the edge's OWN deck (nearest y_ref) so a parallel/crossing deck in the window
+                # can't flicker the wheel and mint phantom steps; the soft-top OWNER still comes from the
+                # HIGHEST surface (to catch grass sitting ON TOP of the deck).
+                _htop, owner, h = surface.top_at(px, pz, y_ref, window, both=True)
+            else:
+                h, owner = surface.top_at(px, pz, y_ref, window)
             if h is None:
                 prev_h[pi] = None
                 prev_slope[pi] = None
                 continue
-            if owner and owner.upper().startswith(SOFT) and edge_skip <= s <= lap - edge_skip:
+            if (owner and owner.upper().startswith(SOFT) and "VERGE" not in owner.upper()
+                    and edge_skip <= s <= lap - edge_skip):
+                # a *_verge shoulder is a graded strip coplanar with the road EDGE that ramps down to the
+                # grass; on a cambered/curved edge it reads a hair above the deck CENTRE, but it's the
+                # shoulder at the lane edge, not ground poking UP through the lane — not a soft-top.
                 problems["soft_top_in_lane"].append((round(s, 1), round(off, 2), owner))
             if prev_h[pi] is not None:
                 dh = h - prev_h[pi]
@@ -195,7 +221,7 @@ def _sweep(pts, widths, surface, obstacle, edge_skip=0.0):
         # corridor obstruction scan at this station (uses centre deck height)
         if deck_c is not None:
             for name in obstacle.rising_in(x, z, lane_half + 0.3,
-                                           lambda vx, vz: surface.top_at(vx, vz, y_ref)[0],
+                                           lambda vx, vz: surface.top_at(vx, vz, y_ref, window)[0],
                                            OBST_CLEAR_M, OBST_HEIGHT_M):
                 problems["obstructions"].append((round(s, 1), name))
                 obst_names[name] += 1
@@ -213,7 +239,10 @@ def run(project_dir: str | Path) -> dict:
     # obstacles (walls-in-road is the mesh-audit's job), so they're excluded from the corridor scan here.
     fe = data / "finished_edges.json"
     network_mode = fe.exists()
-    obst_skip = ("1WALL",) if network_mode else ()
+    # 1WALL barriers + HWYSTRUCT viaduct structure (deck boxes, piers) line the network BY DESIGN — they're
+    # containment/support, and "support/wall in the road" is the mesh-audit's gate (audit_mesh checks
+    # supports-in-road + clearance). Exclude them from the drive-test corridor scan; keep scenery props.
+    obst_skip = ("1WALL", "HWYSTRUCT") if network_mode else ()
 
     surface = TriField()      # everything the car can roll on
     obstacle = TriField()     # everything else that could stand in the corridor
@@ -276,10 +305,13 @@ def run(project_dir: str | Path) -> dict:
     obst_names = defaultdict(int)
     lap = 0.0
     per_path = []
+    win = 1.3 if network_mode else 2.5   # tight on a network so the sweep tracks the edge's own deck
     for pname, pp, ww in paths_to_drive:
         # the main ring is CLOSED (no ends); extra lines are OPEN — exempt their termini from soft-top
         edge_skip = 0.0 if pname == "loop" else 4.0
-        pr, on, lp = _sweep(pp, ww, surface, obstacle, edge_skip)
+        # track_deck everywhere: where a connector/edge crosses another road, the RIDE should follow its OWN
+        # deck, not flicker onto the crossing deck (phantom steps). On a plain single road nearest==highest.
+        pr, on, lp = _sweep(pp, ww, surface, obstacle, edge_skip, win, track_deck=True)
         lap += lp
         for k in problems:
             problems[k] += pr[k]

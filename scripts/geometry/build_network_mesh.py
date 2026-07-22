@@ -524,6 +524,39 @@ def _merge_taper(deck_pts, base_w, road_hash, self_eid, *, cell=12.0, dy=3.0, ta
     return w
 
 
+def _carve_network_decks(grid_xyz, finished_edges, *, carve=0.30, margin_cells=1.3):
+    """GUARANTEE the terrain never crests over a DRIVABLE DECK — the network version of the loop's
+    carve_road_corridor. _clamp_terrain_poke only lowers grid nodes against at-grade samples, so a coarse
+    grass facet spanning a sunk node and a higher one just outside still pokes UP through the thin ribbon
+    between them (the 43 711 ground-through-lane the wheel test found). Here, for every AS-BUILT deck point
+    (deck height, ramps included), push EVERY grid node within (half-width + ~one grid cell) down to
+    deck-``carve`` — carving the drivable corridor AND the adjacent node ring, so the grass tile next to the
+    road is fully below the deck and can't crest into the wheel path. ONE-SIDED (only lowers) → a viaduct
+    20 m up leaves the ground beneath untouched. Mutates in place."""
+    ny = len(grid_xyz); nx = len(grid_xyz[0])
+    x0 = grid_xyz[0][0][0]; z0 = grid_xyz[0][0][2]
+    dx = grid_xyz[0][1][0] - x0; dz = z0 - grid_xyz[1][0][2]      # dz>0: rows run north->south
+    adx, adz = abs(dx) or 1.0, abs(dz) or 1.0
+    margin = margin_cells * max(adx, adz)
+    for e in finished_edges:
+        pts = e["points_xyz_m"]; ws = e["widths_m"]
+        if len(pts) < 2:
+            continue
+        for i in range(len(pts)):
+            x, y, z = pts[i]
+            reach = ws[i] / 2.0 + margin
+            lim = y - carve
+            r2 = reach * reach
+            fi = (x - x0) / dx; fj = (z0 - z) / dz
+            ri = int(reach / adx) + 1; rj = int(reach / adz) + 1
+            for jj in range(max(0, int(fj) - rj), min(ny, int(fj) + rj + 1)):
+                row = grid_xyz[jj]
+                for ii in range(max(0, int(fi) - ri), min(nx, int(fi) + ri + 1)):
+                    g = row[ii]
+                    if g[1] > lim and (g[0] - x) ** 2 + (g[2] - z) ** 2 <= r2:
+                        row[ii] = (g[0], lim, g[2])
+
+
 def _clamp_terrain_poke(grid_xyz, edge_local, *, margin=10.0, clear=0.30, cell=24.0):
     """One-sided anti-poke: push any terrain node that sits ABOVE a nearby road surface down to
     road-height minus ``clear``, so no grass triangle pokes up through the drivable ribbon. Never raises
@@ -750,6 +783,11 @@ def build(project_dir: str | Path) -> dict:
             w_arr = _merge_taper(deck_pts, w, road_trim_hash, f["properties"]["id"])
         else:
             w_arr = [w] * len(deck_pts)
+        if is_fw:
+            # Grade-cap EVERY freeway deck (not just viaducts): at-grade ramps used raw DEM elevation, and
+            # the merge-trim can splice in a jump, so a ramp deck could step 2.5 m between points — an
+            # undrivable wall the wheel test caught. Cap the slope so ramps rise/fall at a drivable grade.
+            deck_pts = _grade_cap_y(deck_pts, max_grade=0.065)
         bank_at = None
         if _bank:
             bv = [_vertex_bank(p[0], p[2]) for p in deck_pts]
@@ -915,6 +953,11 @@ def build(project_dir: str | Path) -> dict:
     # launches the car" defect on cuts + coarse-grid corners. Uses AT-GRADE road heights so terrain still
     # stays low under flyover decks.
     _clamp_terrain_poke(grid_xyz, edge_local, margin=10.0, clear=GRASS_CLEARANCE_M)
+    # HARD carve referenced to the AS-BUILT DECKS (ramps included): samples each deck ribbon directly and
+    # pushes any terrain cresting over it down below — the guarantee the node-clamp can't give on a coarse
+    # grid. One-sided, so viaduct decks leave the ground beneath untouched. This is what clears the
+    # ground-through-lane the network drive-test found.
+    _carve_network_decks(grid_xyz, fw_finished_edges, carve=GRASS_CLEARANCE_M)
 
     # green-vs-dry classifier: a tile is irrigated LAWN if it sits near a SURFACE street (not just a
     # freeway) on gentle ground; canyon/hill/freeway-cut tiles stay dry chaparral. Spatial-hash the

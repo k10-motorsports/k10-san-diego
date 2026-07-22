@@ -5,6 +5,9 @@ set -euo pipefail
 PROJ="${1:-project}"
 BL="${BLENDER:-$HOME/.cache/prodrive-ac-builder/Blender4.2.9.app/Contents/MacOS/Blender}"
 SLUG="$(python3 -c "import json,sys;print(json.load(open('$PROJ/track.config.json'))['slug'])")"
+# Zip name = track NAME + version (e.g. k10_san_diego_v0.20.0.zip) — the whole track is more than Lake
+# Murray now, and the version has to be on the file. The AC folder INSIDE stays $SLUG (install identity).
+ZIPBASE="$(python3 -c "import json,re;c=json.load(open('$PROJ/track.config.json'));n=c.get('name') or c['slug'];print(re.sub(r'[^a-z0-9]+','_',n.lower()).strip('_')+'_v'+str(c.get('version','0.0.0')))")"
 
 echo "━━ prep loop.blend -> AC-ready .blend"
 "$BL" --background --python scripts/ac/build_kn5.py       -- "$PROJ" | grep -iE "flipped|prepped|WARNING" || true
@@ -22,5 +25,5 @@ python3 -m scripts.ac.verify_kn5 "$PROJ"
 echo "━━ track folder (surfaces/ui/map/models)"
 python3 -m scripts.ac.track_folder "$PROJ" | sed 's/^/   /'
 cp "$PROJ/build/$SLUG.kn5" "$PROJ/build/$SLUG/"
-( cd "$PROJ/build" && rm -f "${SLUG}_track.zip" && zip -qr "${SLUG}_track.zip" "$SLUG" )
-echo "✓ installable track -> $PROJ/build/${SLUG}_track.zip"
+( cd "$PROJ/build" && rm -f "${SLUG}_track.zip" "${ZIPBASE}.zip" && zip -qr "${ZIPBASE}.zip" "$SLUG" )
+echo "✓ installable track -> $PROJ/build/${ZIPBASE}.zip"
