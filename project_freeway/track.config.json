@@ -1,5 +1,7 @@
 {
-  "name": "San Diego \u2014 Freeway Loop",
+  "name": "San Diego — Freeway Loop",
+  "ui_series": "",
+  "_ui_series_doc": "Engine track_folder prefixes the CM display name with ui_series (default 'K10 Colorado'); empty = use the track name as-is (SD names already carry the K10 - San Diego branding).",
   "slug": "san_diego_freeway_loop",
   "version": "0.1.0",
   "author": "k10-san-diego",

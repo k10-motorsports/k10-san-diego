@@ -6,6 +6,25 @@ way, with a different working method.
 
 ---
 
+## The central engine (prodrive-ac-builder)
+
+This repo **consumes the shared track engine** instead of carrying hand-ported copies of it (the copies
+went stale twice — that's why the consolidation happened):
+
+- `./bootstrap.sh` clones/fetches `prodrive-ac-builder` into git-ignored **`.engine/`** at the tag
+  pinned in **`.engine-version`**. Run it after clone and after bumping the pin.
+- Every build stage the engine covers runs **from `.engine/`**:
+  `(cd .engine && python3 -m scripts.<pkg>.<mod> <ABSOLUTE-project-dir>)` — the wrappers
+  (`scripts/build_network.sh`, `scripts/build_kn5.sh`, `scripts/build_combined.sh`) do this already.
+- `scripts/` here keeps **only what is SD-unique**: the Blender-first loop program
+  (`ac/build_kn5.py` — becomes the engine's `ac/build_kn5_loop.py`), the network Blender assembler
+  (`ac/build_network_kn5.py`), freeway-merge/combine tooling, the loop's routing + shaping helpers,
+  the freeway launch-grade audit (`geometry/audit_mesh.py` check H), and the Blender live tools —
+  plus a few local copies that only live on until the next engine tag (each call site carries a
+  `TODO(engine pin > v0.15.0)` marker; flip them and delete the local copy when the pin bumps).
+
+---
+
 ## The method (this is the important part)
 
 > **Kevin is the designer. Claude is the Blender operator. We build it *live in Blender together*,
@@ -84,18 +103,22 @@ k10-san-diego/
 │   ├── source/realworld_capture.json  # texture_overrides: CC0 cement on 1ROAD/HWYSTRUCT/1WALL etc.
 │   └── data/                     # network.geojson + elevation + heightfield committed (offline rebuild);
 │                                 # track.obj/environment.obj are regenerated, git-ignored
-└── scripts/
+├── bootstrap.sh / .engine-version   # central-engine pin: fetches prodrive-ac-builder into .engine/
+├── .engine/                      # the pinned engine checkout (git-ignored; run ./bootstrap.sh)
+└── scripts/                      # SD-UNIQUE code only — engine-covered stages run from .engine/
     ├── config.py
-    ├── gps/          # centerline, street_route (real-network routing), network+classify (graph), overpass, kml
+    ├── gps/          # centerline, street_route (real-network routing), overpass, kml, road_widths
     ├── trace/osm.py
-    ├── elevation/    # heightfield, usgs_3dep, network_elev (network 3DEP), synthetic_field
-    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies,
-    │                 # build_network_mesh (+viaducts/piers/walls), audit_mesh (the gate), grade_track
-    ├── environment/  # build_network_env (network scatter/furniture/water), buildings
-    ├── lighting/     # csp_config.resolve_true_north (slim port — full solar module stays in prodrive)
-    ├── blender/      # build_loop_blend.py — imports the loop into Blender
-    └── ac/           # kn5 pipeline: build_kn5 (prep) -> export_kn5_addon -> verify_kn5 -> track_folder
-                      # + build_network_kn5 (OBJ->blend for network projects), flythrough_network
+    ├── elevation/    # heightfield, usgs_3dep (loop-path libraries; network 3DEP runs from .engine)
+    ├── geometry/     # ribbon (road/kerb/terrain), kerbs, projection, bridge_level, dummies, palm,
+    │                 # scenery, smooth, extra_lines, build_mesh+build_network_mesh (audit libraries),
+    │                 # audit_mesh (SD-unique H launch-grade gate; engine audit runs in the mesh stage)
+    ├── environment/  # (network scatter/furniture/water runs from .engine)
+    ├── blender/      # build_loop_blend.py — imports the loop into Blender; live/ operator tools
+    └── ac/           # SD-unique: build_kn5 (loop prep -> engine build_kn5_loop at next pin),
+                      # build_network_kn5, merge_freeway, combine_layouts + local-until-next-pin
+                      # copies (export_kn5_addon, pbr, kn5_ground_check, track_folder, ext_config,
+                      # verify_kn5-as-_parse-library, install, credits) — see TODO markers in wrappers
 vendor/io_import_accsv   # the jwl-7 AC Blender Tools addon, vendored (kn5 exporter; Blender 4.2 only)
 ```
 
