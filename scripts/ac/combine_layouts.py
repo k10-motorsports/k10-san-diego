@@ -10,7 +10,8 @@ This rebuilds build/<full_slug>/extension/ext_config.ini as:
   + <freeway's LIGHT_* renumbered to continue, each POSITION shifted by the freeway model offset>
   + <full's MATERIAL_ADJUSTMENT_STREETLIGHTS — one section covers LIGHTS_mat in BOTH kn5s>
 
-Run per-project `scripts.ac.ext_config` for `project` and `project_freeway` FIRST (both must carry the
+Run per-project ext_config for `project` and `project_freeway` FIRST — from the central engine:
+`(cd .engine && python3 -m scripts.ac.ext_config <ABS-project-dir>)` (both must carry the
 [INCLUDE] common/conditions.ini fix), then:  python -m scripts.ac.combine_layouts
 """
 
