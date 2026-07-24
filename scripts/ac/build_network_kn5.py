@@ -2,7 +2,7 @@
 
 Run from Blender (bpy is provided by the Blender runtime, not pip):
 
-    blender --background --python scripts/ac/build_kn5.py -- <track-dir>
+    blender --background --python scripts/ac/build_network_kn5.py -- <track-dir>
 
 Reads <track-dir>/track.config.json + data/, builds the scene (1ROAD ribbon, GRASS heightfield,
 dummies), assigns materials via the AC Blender Tools addon, and exports build/<slug>.kn5.
@@ -23,7 +23,7 @@ def _track_dir_from_argv(argv: list[str]) -> Path:
     writing a 0-byte file. Making track_dir absolute keeps every derived path (data/, overrides, build/)
     valid regardless of Blender's working directory. Stock textures already use an absolute texture_dir()."""
     if "--" not in argv:
-        raise SystemExit("usage: blender --background --python build_kn5.py -- <track-dir>")
+        raise SystemExit("usage: blender --background --python build_network_kn5.py -- <track-dir>")
     rest = argv[argv.index("--") + 1:]
     if not rest:
         raise SystemExit("missing <track-dir> after '--'")
@@ -167,7 +167,9 @@ def build(track_dir: Path) -> Path:
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
     #    stamp the AC shader name from materials.json — the FBX carries the textures (path_mode=COPY)
     #    AND the kn5 gets the right shader.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    # pbr comes from the CENTRAL ENGINE (the same table export_kn5_addon binds at export) — SD's
+    # local copy was deleted at the v0.16.0 pin flip. .engine/ is fetched by ./bootstrap.sh.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".engine" / "scripts" / "ac"))
     import pbr
     overrides = pbr.load_overrides(track_dir)   # real captured textures (scripts/capture/textures.py)
     if overrides:
