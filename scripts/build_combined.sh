@@ -12,12 +12,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 BL="${BLENDER:-$HOME/.cache/prodrive-ac-builder/Blender4.2.9.app/Contents/MacOS/Blender}"
 PY="${PYTHON:-python3}"
+# central engine (prodrive-ac-builder) pinned by .engine-version, fetched into gitignored .engine/
+[[ -d "$ROOT/.engine/scripts" ]] || "$ROOT/bootstrap.sh"
+ENGINE="$ROOT/.engine"
 
 if [[ "${1:-}" == "freeway" ]]; then
-  echo "━━ rebuild freeway network (unmirrored)"
-  "$PY" -m scripts.geometry.build_network_mesh project_freeway_net
+  echo "━━ rebuild freeway network (unmirrored, central engine)"
+  (cd "$ENGINE" && "$PY" -m scripts.geometry.build_network_mesh "$ROOT/project_freeway_net")
+  # SD-local audit: carries the SD-unique H_grade_launch (freeway launch-grade) check on top of
+  # the engine audit that already ran inside build_network_mesh.
   "$PY" -m scripts.geometry.audit_mesh          project_freeway_net
-  "$PY" -m scripts.environment.build_network_env project_freeway_net
+  (cd "$ENGINE" && "$PY" -m scripts.environment.build_network_env "$ROOT/project_freeway_net")
 fi
 
 echo "━━ refresh the loop's extra lines (Del Cerro sub-loop + split carriageways) + level bridges"

@@ -1,5 +1,7 @@
 {
   "name": "K10 - San Diego",
+  "ui_series": "",
+  "_ui_series_doc": "Engine track_folder prefixes the CM display name with ui_series (default 'K10 Colorado'); empty = use the track name as-is (SD names already carry the K10 - San Diego branding).",
   "slug": "san_diego_lake_murray",
   "version": "0.15.0",
   "author": "k10-san-diego",
@@ -110,5 +112,5 @@
     "tree_pct": 38,
     "scrub_pct": 24
   },
-  "ui_description": "K10 - San Diego: a real-world Assetto Corsa track built from OpenStreetMap + USGS 3DEP. Drive the 13.5 km Lake Murray loop around the reservoir (Kevin's childhood neighborhood) \u2014 now with the Del Cerro sub-loop and true per-direction elevations on Navajo & College \u2014 plus the full San Diego central freeway network (I-5 / CA-52 / CA-163 / I-8, every ramp, on real elevated structure) in one map."
+  "ui_description": "K10 - San Diego: a real-world Assetto Corsa track built from OpenStreetMap + USGS 3DEP. Drive the 13.5 km Lake Murray loop around the reservoir (Kevin's childhood neighborhood) — now with the Del Cerro sub-loop and true per-direction elevations on Navajo & College — plus the full San Diego central freeway network (I-5 / CA-52 / CA-163 / I-8, every ramp, on real elevated structure) in one map."
 }
