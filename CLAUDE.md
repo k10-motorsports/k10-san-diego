@@ -16,12 +16,13 @@ went stale twice — that's why the consolidation happened):
 - Every build stage the engine covers runs **from `.engine/`**:
   `(cd .engine && python3 -m scripts.<pkg>.<mod> <ABSOLUTE-project-dir>)` — the wrappers
   (`scripts/build_network.sh`, `scripts/build_kn5.sh`, `scripts/build_combined.sh`) do this already.
-- `scripts/` here keeps **only what is SD-unique**: the Blender-first loop program
-  (`ac/build_kn5.py` — becomes the engine's `ac/build_kn5_loop.py`), the network Blender assembler
+- `scripts/` here keeps **only what is SD-unique**: the network Blender assembler
   (`ac/build_network_kn5.py`), freeway-merge/combine tooling, the loop's routing + shaping helpers,
-  the freeway launch-grade audit (`geometry/audit_mesh.py` check H), and the Blender live tools —
-  plus a few local copies that only live on until the next engine tag (each call site carries a
-  `TODO(engine pin > v0.15.0)` marker; flip them and delete the local copy when the pin bumps).
+  the freeway launch-grade audit (`geometry/audit_mesh.py` check H), and the Blender live tools.
+  Since the **v0.16.0** pin the engine also carries the Blender-first loop front-end
+  (`.engine/scripts/ac/build_kn5_loop.py` — the port of SD's old `ac/build_kn5.py`), so the last
+  local engine-copies (pbr, export addon, ground check, track_folder, ext_config, verify,
+  install, credits) are **gone** — all those stages run from `.engine/`.
 
 ---
 
@@ -115,10 +116,9 @@ k10-san-diego/
     │                 # audit_mesh (SD-unique H launch-grade gate; engine audit runs in the mesh stage)
     ├── environment/  # (network scatter/furniture/water runs from .engine)
     ├── blender/      # build_loop_blend.py — imports the loop into Blender; live/ operator tools
-    └── ac/           # SD-unique: build_kn5 (loop prep -> engine build_kn5_loop at next pin),
-                      # build_network_kn5, merge_freeway, combine_layouts + local-until-next-pin
-                      # copies (export_kn5_addon, pbr, kn5_ground_check, track_folder, ext_config,
-                      # verify_kn5-as-_parse-library, install, credits) — see TODO markers in wrappers
+    └── ac/           # SD-unique only: build_network_kn5 (network Blender assembler),
+                      # merge_freeway, combine_layouts. Loop prep/export/verify/ground/pack all
+                      # run from .engine/ (v0.16.0+ — see scripts/build_kn5.sh)
 vendor/io_import_accsv   # the jwl-7 AC Blender Tools addon, vendored (kn5 exporter; Blender 4.2 only)
 ```
 
@@ -152,7 +152,7 @@ How the merge works — the loop stays Blender-first, the freeway is a build INP
 - The freeway network MUST be built `mirror_x=false` (matching the loop's frame). `scripts/ac/merge_freeway.py`
   translates its `track.obj` + `environment.obj` into the loop's local frame (origin delta + elevation-datum
   delta), suffixing group names `_fw` (keeping the 1ROAD_/1GRASS_/1WALL_/HWYSTRUCT prefix).
-- The loop's `build_kn5.py` imports those OBJs with the SAME `(x,z,y)`-reflect remap `make_mesh` uses, so
+- The loop's prep pass (engine `build_kn5_loop.py`) imports those OBJs with the SAME `(x,z,y)`-reflect remap `make_mesh` uses, so
   they land in the loop frame and the existing rename/face-up-flip/PBR pass handles them. Walls + HWYSTRUCT
   are double-sided (the reflection flips their winding; a barrier must collide from both sides).
 - One layout (`full`) = the whole thing. Ships as one zip via GitHub Releases.
@@ -171,14 +171,21 @@ extra line carries real point-precise 3DEP (the sub-loop climbs the Del Cerro hi
 ```bash
 scripts/build_kn5.sh project     # -> project/build/<slug>_track.zip (drop into Content Manager)
 ```
-Stages: `build_kn5.py` opens loop.blend, renames the working meshes to AC conventions
-(ROAD→`1ROAD_road`, TERRAIN→`1GRASS`, KERB→`1KERB_kerb`, GUARDRAIL→`1WALL_guard`), adds tiling UVs + PBR
-materials + the AC_START/PIT/TIME/HOTLAP dummies, welds the grass watertight, and **flips drivable faces
-up** (the local→Blender axis remap is a reflection that inverts winding — face-down = car falls through;
-fix deterministically by reversing only normal.z<0 faces, never `recalc_face_normals`). Then
-`export_kn5_addon.py` runs the vendored addon (Blender **4.2** — not 5) to write the kn5, `verify_kn5`
-gates it (no dup meshes, drivable face-up, under the 65 k cap, spawns on road), and `track_folder`
-writes surfaces.ini / ui / map / models.ini / CSP ext_config. Ships via GitHub Releases, not git.
+Stages (all from the **central engine**, `.engine/` at the pinned tag): `build_kn5_loop.py` opens
+loop.blend, renames the working meshes to AC conventions (ROAD→`1ROAD_road`, TERRAIN→`1GRASS`,
+KERB→`1KERB_kerb`, GUARDRAIL→`1WALL_guard`), adds tiling UVs + PBR materials + the
+AC_START/PIT/TIME/HOTLAP dummies, welds the grass watertight, and **flips drivable faces up** (the
+local→Blender axis remap is a reflection that inverts winding — face-down = car falls through; fix
+deterministically by reversing only normal.z<0 faces, never `recalc_face_normals`). Its **over-cap
+guard is FATAL** — every mesh must land under 65,535 verts, so `build_loop_blend` pre-chunks the
+clustered foliage (PALMFROND etc.) with `palm.chunk_mesh` (balanced median bisection; the engine's
+equal-width band split alone once left a PALMFROND band at 82,797 verts). Then the engine
+`export_kn5_addon.py` runs the vendored addon (Blender **4.2** — not 5) to write the kn5,
+`verify_kn5` gates it (no dup meshes, drivable face-up, under the 65 k cap, spawns on road),
+`kn5_ground_check` runs kn5-internal (Blender-first: no source OBJs), and `track_folder` writes
+surfaces.ini / ui / map / models.ini / CSP ext_config. The loop's green-turf `1GRASS` look rides on
+`texture_overrides` in `project/track.config.json` (the engine default is dry chaparral). Ships via
+GitHub Releases, not git.
 
 ## Commands
 

@@ -8,7 +8,8 @@ carries a byte we can't ship. Two provenance classes, both CC0-1.0 / public doma
 
 Palm frond / atlas are alpha-cutout billboards: their alpha is written BINARY (0/255) so EEVEE-Next's
 alpha hashing and the in-engine kn5 ALPHATEST cut the card out crisply (a soft 0..1 alpha dithers the thin
-leaflets away). Filenames + sizes match what scripts/ac/pbr.py binds by prefix, so nothing downstream changes.
+leaflets away). Filenames + sizes match what the engine pbr table (.engine/scripts/ac/pbr.py) binds by
+prefix, so nothing downstream changes.
 
     python -m scripts.assets.generate_textures                 # fetch CC0 + regen procedural
     python -m scripts.assets.generate_textures --skip-download # regen the 4 procedural textures only (offline)

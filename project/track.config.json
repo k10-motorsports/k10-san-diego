@@ -75,6 +75,17 @@
     "grass": "GRASS",
     "kerb": "1KERB"
   },
+  "_texture_overrides_doc": "Engine-pbr parity: the engine's 1GRASS default is dry chaparral (Colorado tracks); Lake Murray's neighborhood terrain is irrigated green turf. Paths resolve against the engine checkout's assets/textures/ (pbr.load_overrides).",
+  "texture_overrides": {
+    "1GRASS": {
+      "diffuse": "assets/textures/grass_diffuse.jpg",
+      "normal": "assets/textures/grass_normal.jpg"
+    }
+  },
+  "pbr": {
+    "_doc": "network_walls: the merged freeway's 1WALL_fw barriers read as cast concrete (the network look), not Kevin's 4 m portable barrier modules. The loop itself has no plain 1WALL_ meshes (its rail is 1WALL_guard -> 1WALL_GUARD entry), so this only affects the combined build.",
+    "network_walls": true
+  },
   "layouts": [
     {
       "id": "full",

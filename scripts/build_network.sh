@@ -65,12 +65,9 @@ if active blend || active kn5; then
   active blend && run blend "$BLENDER" --background --python scripts/ac/build_network_kn5.py -- "$PROJ_ABS"
   active kn5   && run kn5   "$BLENDER" --background --python "$ENGINE/scripts/ac/export_kn5_addon.py" -- "$PROJ_ABS"
   active kn5   && eng verify "$PY" -m scripts.ac.verify_kn5 "$PROJ_ABS"
-  # Fidelity gate on the SHIPPED kn5 vs the audited OBJs. LOCAL for now: the engine's
-  # kn5_ground_check at v0.15.0 only buckets CO-style 1ROAD_MAIN/_SHOULDER names, so it cannot see
-  # this network's 1ROAD_part* groups. TODO(engine>=v0.16 / PR "Loop front-end"): flip to
-  #   eng fidelity "$PY" -m scripts.ac.kn5_ground_check "$PROJ_ABS"
-  # once the generic 1ROAD bucket lands, then delete scripts/ac/kn5_ground_check.py here.
-  active kn5   && run fidelity "$PY" -m scripts.ac.kn5_ground_check "$PROJ"
+  # Fidelity gate on the SHIPPED kn5 vs the audited OBJs — engine kn5_ground_check (its generic
+  # 1ROAD bucket sees this network's 1ROAD_part* groups since v0.16.0).
+  active kn5   && eng fidelity "$PY" -m scripts.ac.kn5_ground_check "$PROJ_ABS"
 fi
 
 if active pack; then

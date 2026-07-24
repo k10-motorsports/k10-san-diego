@@ -68,6 +68,61 @@ def _add_fronds(cx, cz, ytop, h, yaw0, mesh):
                 T.append((a0, b1, b0)); T.append((a0, a1, b1))     # back (double-sided)
 
 
+def chunk_mesh(mesh_dict, max_verts=45000, axes=(0, 2)):
+    """Split a raw mesh dict into BALANCED spatial chunks, each under ``max_verts`` unique vertices.
+
+    AC's per-mesh cap is 65,535 verts (16-bit indices) and the engine's build_kn5_loop over-cap
+    guard is FATAL. The engine's own split pass tiles a big mesh into EQUAL-WIDTH spatial bands —
+    fine for uniform sheets (terrain), but clustered scatter defeats it: the loop's palms hug the
+    road ring, so one band of the 247k-vert PALMFROND soaked up 82,797 verts and breached the cap.
+    This chunker recursively bisects the triangle set at the MEDIAN centroid along the longer
+    horizontal extent, so every chunk lands under the budget regardless of clustering.
+
+    ``axes`` are the two horizontal coordinate indices ((0, 2) for the local x=E,y=up,z=N frame;
+    (0, 1) for Blender Z-up). Per-vertex UVs are carried when present. Returns [mesh_dict, ...].
+    """
+    V, T = mesh_dict["vertices"], mesh_dict["tris"]
+    U = mesh_dict.get("uvs") if len(mesh_dict.get("uvs") or []) == len(V) else None
+
+    def rebuild(tris):
+        used, nv, nu, nt = {}, [], [], []
+        for tri in tris:
+            idx = []
+            for vi in tri:
+                if vi not in used:
+                    used[vi] = len(nv)
+                    nv.append(V[vi])
+                    if U is not None:
+                        nu.append(U[vi])
+                idx.append(used[vi])
+            nt.append(tuple(idx))
+        out = {"vertices": nv, "tris": nt}
+        if U is not None:
+            out["uvs"] = nu
+        return out, len(nv)
+
+    def recurse(tris):
+        built, n = rebuild(tris)
+        if n <= max_verts or len(tris) < 2:
+            return [built]
+        cents = []
+        for tri in tris:
+            pa, pb, pc = V[tri[0]], V[tri[1]], V[tri[2]]
+            cents.append(((pa[axes[0]] + pb[axes[0]] + pc[axes[0]]) / 3.0,
+                          (pa[axes[1]] + pb[axes[1]] + pc[axes[1]]) / 3.0))
+        ax = 0 if (max(c[0] for c in cents) - min(c[0] for c in cents)) >= \
+                  (max(c[1] for c in cents) - min(c[1] for c in cents)) else 1
+        order = sorted(range(len(tris)), key=lambda i: cents[i][ax])
+        half = len(order) // 2
+        lo = [tris[i] for i in order[:half]]
+        hi = [tris[i] for i in order[half:]]
+        return recurse(lo) + recurse(hi)
+
+    if not T:
+        return [mesh_dict]
+    return recurse(list(T))
+
+
 def scatter(centerline, widths, terr, on_mask, *, spacing=28.0, offset=3.2,
             hmin=10.0, hmax=13.5) -> tuple[dict, int]:
     """Drop a palm every ``spacing`` m of arc on BOTH verges of the masked stretch. ``terr(x,z)`` samples

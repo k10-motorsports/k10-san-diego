@@ -767,11 +767,26 @@ def main():
     make_mesh("LIGHTS", lights, (0.28, 0.28, 0.30, 1.0))
     make_mesh("HOUSE", bmeshes["HOUSE"], (0.60, 0.55, 0.48, 1.0))
     make_mesh("BUILDING", bmeshes["BUILDING"], (0.62, 0.62, 0.60, 1.0))
-    make_mesh("PALMTRUNK", palms["PALMTRUNK"], (0.45, 0.38, 0.28, 1.0))   # tall Mexican fan palm trunk
-    make_mesh("PALMFROND", palms["PALMFROND"], (0.24, 0.40, 0.16, 1.0))   # drooping fan crown (alpha)
-    make_mesh("TREETRUNK", scen["TREETRUNK"], (0.34, 0.26, 0.18, 1.0))    # broadleaf shade-tree trunk
-    make_mesh("TREECANOPY", scen["TREECANOPY"], (0.21, 0.36, 0.16, 1.0))  # shade canopy (in the yards)
-    make_mesh("SCRUB", scen["SCRUB"], (0.40, 0.42, 0.25, 1.0))            # dry chaparral on the hillsides
+    # Foliage ships PRE-CHUNKED under AC's 65,535-vert cap (palm.chunk_mesh: balanced median
+    # bisection). The engine's build_kn5_loop split pass uses equal-width spatial bands, which
+    # clustered scatter defeats — one PALMFROND band once hit 82,797 verts, and the engine's
+    # over-cap guard is FATAL. Chunk names keep the material prefix (PALMFROND_A -> PALMFROND);
+    # letter suffixes can't collide with the engine's numeric _0.. split tiles.
+    from scripts.geometry.palm import chunk_mesh
+    for base, md, rgba in (
+            ("PALMTRUNK", palms["PALMTRUNK"], (0.45, 0.38, 0.28, 1.0)),   # tall Mexican fan palm trunk
+            ("PALMFROND", palms["PALMFROND"], (0.24, 0.40, 0.16, 1.0)),   # drooping fan crown (alpha)
+            ("TREETRUNK", scen["TREETRUNK"], (0.34, 0.26, 0.18, 1.0)),    # broadleaf shade-tree trunk
+            ("TREECANOPY", scen["TREECANOPY"], (0.21, 0.36, 0.16, 1.0)),  # shade canopy (in the yards)
+            ("SCRUB", scen["SCRUB"], (0.40, 0.42, 0.25, 1.0))):           # dry chaparral on the hillsides
+        chunks = chunk_mesh(md)
+        if len(chunks) == 1:
+            make_mesh(base, md, rgba)
+        else:
+            assert len(chunks) <= 26, f"{base}: {len(chunks)} chunks — extend the suffix scheme"
+            for ci, cmd in enumerate(chunks):
+                make_mesh(f"{base}_{chr(65 + ci)}", cmd, rgba)
+            print(f"[blend] {base}: pre-chunked into {len(chunks)} meshes under the 65,535-vert cap")
     print(f"[blend] {len(lampheads)} streetlights placed (collision-checked)")
 
     ys = [p[1] for p in centerline]
